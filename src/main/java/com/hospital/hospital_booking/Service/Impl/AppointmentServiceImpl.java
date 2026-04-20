@@ -12,6 +12,7 @@ import com.hospital.hospital_booking.Repository.UserRepository;
 import com.hospital.hospital_booking.Service.AppointmentService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.LocalDate;
@@ -26,12 +27,15 @@ public class AppointmentServiceImpl implements AppointmentService {
     private final ScheduleRepository scheduleRepository;
     private final UserRepository userRepository;
 
+
+
     @Override
+    @Transactional
     public Appointment createBooking(BookingRequestDTO request) {
             User patient = userRepository.findById(request.getPatientId())
                     .orElseThrow(() -> new RuntimeException("Không tìm thấy Bệnh nhân"));
 
-            Schedule schedule = scheduleRepository.findById(request.getScheduleId())
+            Schedule schedule = scheduleRepository.findByIdWithLock(request.getScheduleId())
                     .orElseThrow(() -> new RuntimeException("Không tìm thấy Khung giờ khám"));
 
             if (schedule.getIsBooked()) {

@@ -1,12 +1,16 @@
 package com.hospital.hospital_booking.Controller;
 
 import com.hospital.hospital_booking.DTO.DoctorResponseDTO;
+import com.hospital.hospital_booking.DTO.PageResponseDTO;
 import com.hospital.hospital_booking.DTO.RegisterRequestDTO;
 import com.hospital.hospital_booking.DTO.UserResponseDTO;
 import com.hospital.hospital_booking.Entity.User;
 import com.hospital.hospital_booking.Service.UserService;
 import com.hospital.hospital_booking.security.JwtTokenProvider;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -62,14 +66,11 @@ public class UserController {
     }
 
     @GetMapping
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<List<? extends UserResponseDTO>> getUsers(@RequestParam(required = false) String role) {
-        try {
-            List<? extends UserResponseDTO> users = userService.getUsersByRole(role);
-            return ResponseEntity.ok(users);
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+    public ResponseEntity<PageResponseDTO<? extends UserResponseDTO>> getUsers(
+            @RequestParam(required = false) String role,
+            @PageableDefault(page = 0, size = 10, sort = "id", direction = Sort.Direction.DESC) Pageable pageable
+    ) {
+        return ResponseEntity.ok(userService.getUsersByRole(role, pageable));
     }
 
 }

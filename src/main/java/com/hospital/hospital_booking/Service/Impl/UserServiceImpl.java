@@ -8,6 +8,10 @@ import com.hospital.hospital_booking.Repository.DoctorDetailRepository;
 import com.hospital.hospital_booking.Repository.UserRepository;
 import com.hospital.hospital_booking.Service.UserService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -74,19 +78,40 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
-    public List<? extends UserResponseDTO> getUsersByRole(String roleName) {
+    public PageResponseDTO<UserResponseDTO> getAllUsers(Pageable pageable) {
+
+        // 👉 2. DÙNG THẲNG pageable, KHÔNG CẦN TẠO PageRequest NỮA
+        Page<User> userPage = userRepository.findAll(pageable);
+
+        // 3. Map Entity sang DTO
+        List<UserResponseDTO> dtoList = userPage.getContent().stream()
+                .map(user -> UserResponseDTO.builder()
+                        .id(user.getId())
+                        .fullName(user.getFullName())
+                        .email(user.getEmail())
+                        .phone(user.getPhone())
+                        .role(user.getRole().name())
+                        .build())
+                .collect(Collectors.toList());
+
+        // 4. Trả về khay PageResponseDTO
+        return PageResponseDTO.<UserResponseDTO>builder()
+                .currentPage(userPage.getNumber() + 1)
+                .totalPages(userPage.getTotalPages())
+                .totalElements(userPage.getTotalElements())
+                .pageSize(userPage.getSize())
+                .data(dtoList)
+                .build();
+    }
+
+    @Override
+    public PageResponseDTO<? extends UserResponseDTO> getUsersByRole(String roleName, Pageable pageable) {
+
+        // Nếu không truyền role, tự động gọi hàm lấy tất cả ở trên
         if (roleName == null || roleName.trim().isEmpty()) {
-            List<User> allUsers = userRepository.findAll();
-            // Trả về danh sách cơ bản cho tất cả mọi người
-            return allUsers.stream().map(user -> UserResponseDTO.builder()
-                    .id(user.getId())
-                    .fullName(user.getFullName())
-                    .email(user.getEmail())
-                    .phone(user.getPhone())
-                    .role(user.getRole().name())
-                    .build()
-            ).collect(Collectors.toList());
+            return getAllUsers(pageable);
         }
+
         Role roleEnum;
         try {
             roleEnum = Role.valueOf(roleName.toUpperCase());
@@ -94,14 +119,15 @@ public class UserServiceImpl implements UserService {
             throw new RuntimeException("Quyền không hợp lệ! Chỉ nhận PATIENT, DOCTOR, ADMIN.");
         }
 
-        // 1. Lấy danh sách từ Database
-        List<User> users = userRepository.findByRole(roleEnum);
+        // Lấy dữ liệu phân trang từ Database
+        Page<User> userPage = userRepository.findByRole(roleEnum, pageable);
 
-        // 2. Dùng Switch-Case để "biến hình" Entity thành DTO tương ứng
+        // Biến hình từ Entity sang DTO
+        List<? extends UserResponseDTO> dtoList;
+
         switch (roleEnum) {
             case DOCTOR:
-                // Nếu là Bác sĩ -> Map sang DoctorResponseDTO
-                return users.stream().map(user -> {
+                dtoList = userPage.getContent().stream().map(user -> {
                     DoctorResponseDTO dto = DoctorResponseDTO.builder()
                             .id(user.getId())
                             .fullName("Bác sĩ " + user.getFullName())
@@ -110,7 +136,6 @@ public class UserServiceImpl implements UserService {
                             .role(user.getRole().name())
                             .build();
 
-                    // Tránh lỗi NullPointerException nếu bác sĩ chưa có chi tiết hồ sơ
                     if (user.getDoctorDetail() != null) {
                         dto.setSpecialtyName(user.getDoctorDetail().getSpecialty().getName());
                         dto.setConsultationFee(user.getDoctorDetail().getConsultationFee());
@@ -118,35 +143,33 @@ public class UserServiceImpl implements UserService {
                     }
                     return dto;
                 }).collect(Collectors.toList());
+                break;
 
             case PATIENT:
-                // Nếu là Bệnh nhân -> Map sang PatientResponseDTO
-                return users.stream().map(user -> PatientResponseDTO.builder()
+                dtoList = userPage.getContent().stream().map(user -> PatientResponseDTO.builder()
                         .id(user.getId())
                         .fullName(user.getFullName())
                         .email(user.getEmail())
                         .phone(user.getPhone())
                         .role(user.getRole().name())
-                        // Giả sử sau này bạn thêm trường địa chỉ vào bảng User
-                        // .address(user.getAddress())
                         .build()
                 ).collect(Collectors.toList());
+                break;
 
             case ADMIN:
-                // Nếu là Admin -> Map sang AdminResponseDTO
-                return users.stream().map(user -> AdminResponseDTO.builder()
+                dtoList = userPage.getContent().stream().map(user -> AdminResponseDTO.builder()
                         .id(user.getId())
                         .fullName(user.getFullName())
                         .email(user.getEmail())
                         .phone(user.getPhone())
                         .role(user.getRole().name())
-                        .adminLevel("SUPER_ADMIN") // Giả lập dữ liệu
+                        .adminLevel("SUPER_ADMIN")
                         .build()
                 ).collect(Collectors.toList());
+                break;
 
             default:
-                // Mặc định trả về UserResponseDTO cơ bản
-                return users.stream().map(user -> UserResponseDTO.builder()
+                dtoList = userPage.getContent().stream().map(user -> UserResponseDTO.builder()
                         .id(user.getId())
                         .fullName(user.getFullName())
                         .email(user.getEmail())
@@ -154,6 +177,16 @@ public class UserServiceImpl implements UserService {
                         .role(user.getRole().name())
                         .build()
                 ).collect(Collectors.toList());
+                break;
         }
+
+        // Đóng gói vào khay trả về
+        return PageResponseDTO.<UserResponseDTO>builder()
+                .currentPage(userPage.getNumber() + 1)
+                .totalPages(userPage.getTotalPages())
+                .totalElements(userPage.getTotalElements())
+                .pageSize(userPage.getSize())
+                .data((List<UserResponseDTO>) dtoList)
+                .build();
     }
 }

@@ -12,5 +12,5 @@ import lombok.experimental.SuperBuilder;
 @AllArgsConstructor
 @EqualsAndHashCode(callSuper = true)
 public class AdminResponseDTO extends UserResponseDTO {
-    private String adminLevel; // Ví dụ: SUPER_ADMIN, STAFF
+    private String adminLevel;
 }

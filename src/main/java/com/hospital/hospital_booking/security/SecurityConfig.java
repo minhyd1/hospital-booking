@@ -3,6 +3,7 @@ package com.hospital.hospital_booking.security;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -38,7 +39,13 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/users/login", "/api/users/register", "/api/schedules/available", "/api/users/doctors").permitAll()
+                        .requestMatchers("/api/users/login", "/api/users/register").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/users/doctors").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/schedule/available").permitAll()
+                        .requestMatchers("/api/users").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/appointments/upcoming/doctor/**").hasAnyRole("DOCTOR","ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/appointments/book").hasAnyRole("PATIENT","ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/appointments/upcoming/patient/**").hasAnyRole("PATIENT","ADMIN")
                         .anyRequest().authenticated()
                 );
 

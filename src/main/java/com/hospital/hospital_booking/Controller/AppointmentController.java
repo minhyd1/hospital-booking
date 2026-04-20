@@ -18,7 +18,6 @@ public class AppointmentController {
     private final AppointmentService appointmentService;
     // URL: POST http://localhost:8080/api/appointments/book
     @PostMapping("/book")
-    @PreAuthorize("hasAnyRole('PATIENT','ADMIN')")
     public ResponseEntity<?> createBooking(@RequestBody BookingRequestDTO request) {
         try {
             Appointment appointment = appointmentService.createBooking(request);
@@ -29,14 +28,12 @@ public class AppointmentController {
     }
     // URL: GET http://localhost:8080/api/appointments/upcoming/doctor/2
     @GetMapping("/upcoming/doctor/{doctorId}")
-    @PreAuthorize("hasAnyRole('DOCTOR','ADMIN')")
     public ResponseEntity<List<UpcomingAppointmentDTO>> getUpcomingForDoctor(@PathVariable Long doctorId) {
         List<UpcomingAppointmentDTO> upcoming = appointmentService.getUpcomingForDoctor(doctorId);
         return ResponseEntity.ok(upcoming);
     }
     // URL: GET http://localhost:8080/api/appointments/upcoming/patient/1
     @GetMapping("/upcoming/patient/{patientId}")
-    @PreAuthorize("hasAnyRole('PATIENT','ADMIN')")
     public ResponseEntity<List<UpcomingAppointmentDTO>> getUpcomingForPatient(@PathVariable Long patientId) {
         List<UpcomingAppointmentDTO> upcoming = appointmentService.getUpcomingForPatient(patientId);
         return ResponseEntity.ok(upcoming);
