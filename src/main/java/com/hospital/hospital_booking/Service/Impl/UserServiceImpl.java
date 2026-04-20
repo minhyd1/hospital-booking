@@ -8,6 +8,7 @@ import com.hospital.hospital_booking.Repository.DoctorDetailRepository;
 import com.hospital.hospital_booking.Repository.UserRepository;
 import com.hospital.hospital_booking.Service.UserService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -18,6 +19,7 @@ import java.util.stream.Collectors;
 public class UserServiceImpl implements UserService {
     private final UserRepository userRepository;
     private final DoctorDetailRepository doctorDetailRepository;
+    private final PasswordEncoder passwordEncoder;
 
     @Override
     public User registerPatient(RegisterRequestDTO request) {
@@ -32,6 +34,7 @@ public class UserServiceImpl implements UserService {
         newPatient.setPhone(request.getPhone());
         newPatient.setRole(Role.PATIENT);
 
+        newPatient.setPassword(passwordEncoder.encode(request.getPassword()));
         return userRepository.save(newPatient);
     }
 
@@ -39,7 +42,7 @@ public class UserServiceImpl implements UserService {
     public User login(String email, String password) {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new RuntimeException("Tài khoản không tồn tại!"));
-        if (!user.getPassword().equals(password)) {
+        if (!passwordEncoder.matches(password, user.getPassword())) {
             throw new RuntimeException("Sai mật khẩu!");
         }
 

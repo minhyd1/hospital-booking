@@ -5,10 +5,13 @@ import com.hospital.hospital_booking.DTO.RegisterRequestDTO;
 import com.hospital.hospital_booking.DTO.UserResponseDTO;
 import com.hospital.hospital_booking.Entity.User;
 import com.hospital.hospital_booking.Service.UserService;
+import com.hospital.hospital_booking.security.JwtTokenProvider;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -18,6 +21,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class UserController {
     private final UserService userService;
+    private final JwtTokenProvider tokenProvider;
 
     // URL: POST http://localhost:8080/api/users/register
     @PostMapping("/register")
@@ -35,8 +39,17 @@ public class UserController {
         try {
             String email = loginData.get("email");
             String password = loginData.get("password");
+
             User user = userService.login(email, password);
-            return ResponseEntity.ok(user);
+            // Sửa dòng tạo Token cũ thành dòng này:
+            String jwt = tokenProvider.generateToken(user.getEmail(), user.getRole().name());
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("token", jwt);
+            response.put("role", user.getRole());
+            response.put("fullName", user.getFullName());
+
+            return ResponseEntity.ok(response);
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }
@@ -49,6 +62,7 @@ public class UserController {
     }
 
     @GetMapping
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<List<? extends UserResponseDTO>> getUsers(@RequestParam(required = false) String role) {
         try {
             List<? extends UserResponseDTO> users = userService.getUsersByRole(role);
