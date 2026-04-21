@@ -5,10 +5,7 @@ import com.hospital.hospital_booking.Service.ScheduleService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -26,5 +23,22 @@ public class ScheduleController {
 
         List<Schedule> availableSlots = scheduleService.getAvailableSlots(doctorId, date);
         return ResponseEntity.ok(availableSlots);
+    }
+
+    @PostMapping
+    public ResponseEntity<Schedule> createSchedule(@RequestBody Schedule schedule) {
+        return ResponseEntity.ok(scheduleService.createSchedule(schedule));
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<?> deleteSchedule(@PathVariable Long id) {
+        scheduleService.deleteSchedule(id);
+        return ResponseEntity.ok("Xóa lịch làm việc thành công!");
+    }
+
+    @PostMapping("/batch")
+    public ResponseEntity<?> batchCreateSchedules(@RequestBody List<Schedule> schedules) {
+        scheduleService.batchCreateSchedules(schedules);
+        return ResponseEntity.ok("Tạo lịch làm việc hàng loạt thành công!");
     }
 }

@@ -189,4 +189,117 @@ public class UserServiceImpl implements UserService {
                 .data((List<UserResponseDTO>) dtoList)
                 .build();
     }
+
+    @Override
+    public User getUserByEmail(String email) {
+        return userRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy người dùng với email: " + email));
+    }
+
+    @Override
+    public void changePassword(String email, String oldPassword, String newPassword) {
+        User user = getUserByEmail(email);
+        if (!passwordEncoder.matches(oldPassword, user.getPassword())) {
+            throw new RuntimeException("Mật khẩu cũ không chính xác!");
+        }
+        user.setPassword(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
+    }
+
+    @Override
+    public void forgotPassword(String email) {
+        User user = getUserByEmail(email);
+        // Trong thực tế sẽ gửi email chứa mã reset hoặc link
+        // Ở đây chúng ta chỉ log ra console để giả lập
+        System.out.println("Gửi email reset mật khẩu đến: " + email);
+    }
+
+    @Override
+    public UserResponseDTO getMyInfo(String email) {
+        User user = getUserByEmail(email);
+        return mapToDTO(user);
+    }
+
+    @Override
+    public UserResponseDTO updateProfile(String email, UserResponseDTO profileDTO) {
+        User user = getUserByEmail(email);
+        user.setFullName(profileDTO.getFullName());
+        user.setPhone(profileDTO.getPhone());
+        // Cập nhật các trường khác nếu có
+        User updatedUser = userRepository.save(user);
+        return mapToDTO(updatedUser);
+    }
+
+    @Override
+    public DoctorResponseDTO updateDoctorProfile(String email, DoctorResponseDTO profileDTO) {
+        User user = getUserByEmail(email);
+        if (user.getRole() != Role.DOCTOR) {
+            throw new RuntimeException("Chỉ bác sĩ mới có thể cập nhật hồ sơ bác sĩ!");
+        }
+        user.setFullName(profileDTO.getFullName());
+        user.setPhone(profileDTO.getPhone());
+
+        DoctorDetail detail = user.getDoctorDetail();
+        if (detail == null) {
+            detail = new DoctorDetail();
+            detail.setUser(user);
+        }
+        detail.setBio(profileDTO.getBio());
+        detail.setConsultationFee(profileDTO.getConsultationFee());
+        doctorDetailRepository.save(detail);
+        userRepository.save(user);
+
+        return (DoctorResponseDTO) mapToDTO(user);
+    }
+
+    @Override
+    public UserResponseDTO getUserById(Long id) {
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy người dùng với ID: " + id));
+        return mapToDTO(user);
+    }
+
+    @Override
+    public void deleteUser(Long id) {
+        if (!userRepository.existsById(id)) {
+            throw new RuntimeException("Không tìm thấy người dùng để xóa!");
+        }
+        userRepository.deleteById(id);
+    }
+
+    private UserResponseDTO mapToDTO(User user) {
+        if (user.getRole() == Role.DOCTOR) {
+            DoctorResponseDTO dto = DoctorResponseDTO.builder()
+                    .id(user.getId())
+                    .fullName(user.getFullName())
+                    .email(user.getEmail())
+                    .phone(user.getPhone())
+                    .role(user.getRole().name())
+                    .build();
+            if (user.getDoctorDetail() != null) {
+                dto.setBio(user.getDoctorDetail().getBio());
+                dto.setConsultationFee(user.getDoctorDetail().getConsultationFee());
+                if (user.getDoctorDetail().getSpecialty() != null) {
+                    dto.setSpecialtyName(user.getDoctorDetail().getSpecialty().getName());
+                }
+            }
+            return dto;
+        } else if (user.getRole() == Role.PATIENT) {
+            return PatientResponseDTO.builder()
+                    .id(user.getId())
+                    .fullName(user.getFullName())
+                    .email(user.getEmail())
+                    .phone(user.getPhone())
+                    .role(user.getRole().name())
+                    .build();
+        } else {
+            return UserResponseDTO.builder()
+                    .id(user.getId())
+                    .fullName(user.getFullName())
+                    .email(user.getEmail())
+                    .phone(user.getPhone())
+                    .role(user.getRole().name())
+                    .build();
+        }
+    }
 }

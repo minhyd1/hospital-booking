@@ -22,4 +22,24 @@ public class ScheduleServiceImpl implements ScheduleService {
                 .filter(slot -> !slot.getIsBooked())
                 .collect(Collectors.toList());
     }
+
+    @Override
+    public Schedule createSchedule(Schedule schedule) {
+        return scheduleRepository.save(schedule);
+    }
+
+    @Override
+    public void deleteSchedule(Long id) {
+        Schedule schedule = scheduleRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy lịch làm việc"));
+        if (schedule.getIsBooked()) {
+            throw new RuntimeException("Không thể xóa lịch đã có người đặt!");
+        }
+        scheduleRepository.deleteById(id);
+    }
+
+    @Override
+    public void batchCreateSchedules(List<Schedule> schedules) {
+        scheduleRepository.saveAll(schedules);
+    }
 }

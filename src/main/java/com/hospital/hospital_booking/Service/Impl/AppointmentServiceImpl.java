@@ -83,6 +83,76 @@ public class AppointmentServiceImpl implements AppointmentService {
                 .map(app -> buildUpcomingDTO(app, now, false))
                 .collect(Collectors.toList());
     }
+
+    @Override
+    @Transactional
+    public void cancelAppointment(Long appointmentId) {
+        Appointment appointment = appointmentRepository.findById(appointmentId)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy lịch hẹn"));
+
+        if (appointment.getStatus() == AppointmentStatus.COMPLETED || appointment.getStatus() == AppointmentStatus.CANCELLED) {
+            throw new RuntimeException("Lịch hẹn này không thể hủy!");
+        }
+
+        appointment.setStatus(AppointmentStatus.CANCELLED);
+        appointment.getSchedule().setIsBooked(false);
+        scheduleRepository.save(appointment.getSchedule());
+        appointmentRepository.save(appointment);
+    }
+
+    @Override
+    public List<UpcomingAppointmentDTO> getHistoryForPatient(Long patientId) {
+        List<AppointmentStatus> historyStatuses = List.of(AppointmentStatus.COMPLETED, AppointmentStatus.CANCELLED);
+        List<Appointment> appointments = appointmentRepository.findByPatientIdAndStatusInOrderByScheduleWorkingDateDesc(patientId, historyStatuses);
+        return appointments.stream()
+                .map(app -> buildUpcomingDTO(app, LocalDateTime.now(), false))
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<UpcomingAppointmentDTO> getHistoryForDoctor(Long doctorId) {
+        List<AppointmentStatus> historyStatuses = List.of(AppointmentStatus.COMPLETED, AppointmentStatus.CANCELLED);
+        List<Appointment> appointments = appointmentRepository.findByScheduleDoctorIdAndStatusInOrderByScheduleWorkingDateDesc(doctorId, historyStatuses);
+        return appointments.stream()
+                .map(app -> buildUpcomingDTO(app, LocalDateTime.now(), true))
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional
+    public void updateStatus(Long appointmentId, String status) {
+        Appointment appointment = appointmentRepository.findById(appointmentId)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy lịch hẹn"));
+
+        AppointmentStatus newStatus = AppointmentStatus.valueOf(status.toUpperCase());
+        appointment.setStatus(newStatus);
+
+        if (newStatus == AppointmentStatus.CANCELLED) {
+            appointment.getSchedule().setIsBooked(false);
+            scheduleRepository.save(appointment.getSchedule());
+        }
+
+        appointmentRepository.save(appointment);
+    }
+
+    @Override
+    public List<UpcomingAppointmentDTO> getAllAppointments(String date, String status, Long doctorId) {
+        List<Appointment> appointments;
+
+        if (date != null && !date.isEmpty()) {
+            appointments = appointmentRepository.findByScheduleWorkingDate(LocalDate.parse(date));
+        } else if (status != null && !status.isEmpty()) {
+            appointments = appointmentRepository.findByStatus(AppointmentStatus.valueOf(status.toUpperCase()));
+        } else if (doctorId != null) {
+            appointments = appointmentRepository.findByScheduleDoctorId(doctorId);
+        } else {
+            appointments = appointmentRepository.findAll();
+        }
+
+        return appointments.stream()
+                .map(app -> buildUpcomingDTO(app, LocalDateTime.now(), false))
+                .collect(Collectors.toList());
+    }
     private LocalDateTime getAppointmentDateTime(Appointment app) {
         return LocalDateTime.of(
                 app.getSchedule().getWorkingDate(),

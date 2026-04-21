@@ -6,7 +6,6 @@ import com.hospital.hospital_booking.Entity.Appointment;
 import com.hospital.hospital_booking.Service.AppointmentService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -37,5 +36,35 @@ public class AppointmentController {
     public ResponseEntity<List<UpcomingAppointmentDTO>> getUpcomingForPatient(@PathVariable Long patientId) {
         List<UpcomingAppointmentDTO> upcoming = appointmentService.getUpcomingForPatient(patientId);
         return ResponseEntity.ok(upcoming);
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<?> cancelAppointment(@PathVariable Long id) {
+        appointmentService.cancelAppointment(id);
+        return ResponseEntity.ok("Huỷ lịch hẹn thành công!");
+    }
+
+    @GetMapping("/history/patient/{patientId}")
+    public ResponseEntity<List<UpcomingAppointmentDTO>> getHistoryForPatient(@PathVariable Long patientId) {
+        return ResponseEntity.ok(appointmentService.getHistoryForPatient(patientId));
+    }
+
+    @GetMapping("/history/doctor/{doctorId}")
+    public ResponseEntity<List<UpcomingAppointmentDTO>> getHistoryForDoctor(@PathVariable Long doctorId) {
+        return ResponseEntity.ok(appointmentService.getHistoryForDoctor(doctorId));
+    }
+
+    @PatchMapping("/{id}/status")
+    public ResponseEntity<?> updateStatus(@PathVariable Long id, @RequestParam String status) {
+        appointmentService.updateStatus(id, status);
+        return ResponseEntity.ok("Cập nhật trạng thái thành công!");
+    }
+
+    @GetMapping
+    public ResponseEntity<List<UpcomingAppointmentDTO>> getAllAppointments(
+            @RequestParam(required = false) String date,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) Long doctorId) {
+        return ResponseEntity.ok(appointmentService.getAllAppointments(date, status, doctorId));
     }
 }

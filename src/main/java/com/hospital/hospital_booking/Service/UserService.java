@@ -22,4 +22,19 @@ public interface UserService {
 
     PageResponseDTO<UserResponseDTO> getAllUsers(Pageable pageable);
 
+    User getUserByEmail(String email);
+
+    void changePassword(String email, String oldPassword, String newPassword);
+
+    void forgotPassword(String email);
+
+    UserResponseDTO getMyInfo(String email);
+
+    UserResponseDTO updateProfile(String email, UserResponseDTO profileDTO);
+
+    DoctorResponseDTO updateDoctorProfile(String email, DoctorResponseDTO profileDTO);
+
+    UserResponseDTO getUserById(Long id);
+
+    void deleteUser(Long id);
 }
