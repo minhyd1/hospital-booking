@@ -32,7 +32,6 @@ public class UserServiceImpl implements UserService {
         }
         User newPatient = new User();
         newPatient.setEmail(request.getEmail());
-        newPatient.setPassword(request.getPassword());
 
         newPatient.setFullName(request.getFullName());
         newPatient.setPhone(request.getPhone());
@@ -96,7 +95,7 @@ public class UserServiceImpl implements UserService {
 
         // 4. Trả về khay PageResponseDTO
         return PageResponseDTO.<UserResponseDTO>builder()
-                .currentPage(userPage.getNumber() + 1)
+                .currentPage(userPage.getNumber())
                 .totalPages(userPage.getTotalPages())
                 .totalElements(userPage.getTotalElements())
                 .pageSize(userPage.getSize())
@@ -182,7 +181,7 @@ public class UserServiceImpl implements UserService {
 
         // Đóng gói vào khay trả về
         return PageResponseDTO.<UserResponseDTO>builder()
-                .currentPage(userPage.getNumber() + 1)
+                .currentPage(userPage.getNumber())
                 .totalPages(userPage.getTotalPages())
                 .totalElements(userPage.getTotalElements())
                 .pageSize(userPage.getSize())
@@ -249,7 +248,17 @@ public class UserServiceImpl implements UserService {
         doctorDetailRepository.save(detail);
         userRepository.save(user);
 
-        return (DoctorResponseDTO) mapToDTO(user);
+        // Fix ép kiểu không an toàn: gọi build trực tiếp thay vì cast từ mapToDTO
+        return DoctorResponseDTO.builder()
+                .id(user.getId())
+                .fullName(user.getFullName())
+                .email(user.getEmail())
+                .phone(user.getPhone())
+                .role(user.getRole().name())
+                .bio(detail.getBio())
+                .consultationFee(detail.getConsultationFee())
+                .specialtyName(detail.getSpecialty() != null ? detail.getSpecialty().getName() : null)
+                .build();
     }
 
     @Override

@@ -2,10 +2,7 @@ package com.hospital.hospital_booking.Service.Impl;
 
 import com.hospital.hospital_booking.DTO.BookingRequestDTO;
 import com.hospital.hospital_booking.DTO.UpcomingAppointmentDTO;
-import com.hospital.hospital_booking.Entity.Appointment;
-import com.hospital.hospital_booking.Entity.AppointmentStatus;
-import com.hospital.hospital_booking.Entity.Schedule;
-import com.hospital.hospital_booking.Entity.User;
+import com.hospital.hospital_booking.Entity.*;
 import com.hospital.hospital_booking.Repository.AppointmentRepository;
 import com.hospital.hospital_booking.Repository.ScheduleRepository;
 import com.hospital.hospital_booking.Repository.UserRepository;
@@ -31,8 +28,8 @@ public class AppointmentServiceImpl implements AppointmentService {
 
     @Override
     @Transactional
-    public Appointment createBooking(BookingRequestDTO request) {
-            User patient = userRepository.findById(request.getPatientId())
+    public Appointment createBooking(String patientEmail, BookingRequestDTO request) {
+            User patient = userRepository.findByEmail(patientEmail)
                     .orElseThrow(() -> new RuntimeException("Không tìm thấy Bệnh nhân"));
 
             Schedule schedule = scheduleRepository.findByIdWithLock(request.getScheduleId())
@@ -49,7 +46,7 @@ public class AppointmentServiceImpl implements AppointmentService {
             appointment.setPatient(patient);
             appointment.setSchedule(schedule);
             appointment.setSymptoms(request.getSymptoms());
-            appointment.setStatus(AppointmentStatus.CONFIRMED);
+            appointment.setStatus(AppointmentStatus.PENDING); // Đổi CONFIRMED -> PENDING theo nhận xét
 
             return appointmentRepository.save(appointment);
     }
@@ -86,9 +83,17 @@ public class AppointmentServiceImpl implements AppointmentService {
 
     @Override
     @Transactional
-    public void cancelAppointment(Long appointmentId) {
+    public void cancelAppointment(String userEmail, Long appointmentId) {
         Appointment appointment = appointmentRepository.findById(appointmentId)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy lịch hẹn"));
+
+        // Kiểm tra quyền sở hữu (Security fix)
+        User currentUser = userRepository.findByEmail(userEmail)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy người dùng"));
+        
+        if (currentUser.getRole() == Role.PATIENT && !appointment.getPatient().getEmail().equals(userEmail)) {
+            throw new RuntimeException("Bạn không có quyền hủy lịch hẹn này!");
+        }
 
         if (appointment.getStatus() == AppointmentStatus.COMPLETED || appointment.getStatus() == AppointmentStatus.CANCELLED) {
             throw new RuntimeException("Lịch hẹn này không thể hủy!");

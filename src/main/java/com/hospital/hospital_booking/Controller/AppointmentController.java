@@ -4,8 +4,10 @@ import com.hospital.hospital_booking.DTO.BookingRequestDTO;
 import com.hospital.hospital_booking.DTO.UpcomingAppointmentDTO;
 import com.hospital.hospital_booking.Entity.Appointment;
 import com.hospital.hospital_booking.Service.AppointmentService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -15,11 +17,16 @@ import java.util.List;
 @RequiredArgsConstructor
 public class AppointmentController {
     private final AppointmentService appointmentService;
+
+    private String getCurrentUserEmail() {
+        return SecurityContextHolder.getContext().getAuthentication().getName();
+    }
+
     // URL: POST http://localhost:8080/api/appointments/book
     @PostMapping("/book")
-    public ResponseEntity<?> createBooking(@RequestBody BookingRequestDTO request) {
+    public ResponseEntity<?> createBooking(@Valid @RequestBody BookingRequestDTO request) {
         try {
-            Appointment appointment = appointmentService.createBooking(request);
+            Appointment appointment = appointmentService.createBooking(getCurrentUserEmail(), request);
             return ResponseEntity.ok("Đặt lịch thành công! Mã lịch hẹn của bạn là: " + appointment.getId());
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(e.getMessage()); // Báo lỗi nếu trùng slot
@@ -40,7 +47,7 @@ public class AppointmentController {
 
     @DeleteMapping("/{id}")
     public ResponseEntity<?> cancelAppointment(@PathVariable Long id) {
-        appointmentService.cancelAppointment(id);
+        appointmentService.cancelAppointment(getCurrentUserEmail(), id);
         return ResponseEntity.ok("Huỷ lịch hẹn thành công!");
     }
 

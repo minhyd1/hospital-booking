@@ -7,11 +7,13 @@ import com.hospital.hospital_booking.DTO.UserResponseDTO;
 import com.hospital.hospital_booking.Entity.User;
 import com.hospital.hospital_booking.Service.UserService;
 import com.hospital.hospital_booking.security.JwtTokenProvider;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -26,9 +28,13 @@ public class UserController {
     private final UserService userService;
     private final JwtTokenProvider tokenProvider;
 
+    private String getCurrentUserEmail() {
+        return SecurityContextHolder.getContext().getAuthentication().getName();
+    }
+
     // URL: POST http://localhost:8080/api/users/register
     @PostMapping("/register")
-    public ResponseEntity<?> register(@RequestBody RegisterRequestDTO request) {
+    public ResponseEntity<?> register(@Valid @RequestBody RegisterRequestDTO request) {
         try {
             User newUser = userService.registerPatient(request);
             return ResponseEntity.ok(newUser);
@@ -73,15 +79,13 @@ public class UserController {
     }
 
     @GetMapping("/me")
-    public ResponseEntity<?> getMyInfo(@RequestHeader("Authorization") String token) {
-        String email = tokenProvider.getEmailFromJWT(token.substring(7));
-        return ResponseEntity.ok(userService.getMyInfo(email));
+    public ResponseEntity<?> getMyInfo() {
+        return ResponseEntity.ok(userService.getMyInfo(getCurrentUserEmail()));
     }
 
     @PostMapping("/change-password")
-    public ResponseEntity<?> changePassword(@RequestHeader("Authorization") String token, @RequestBody Map<String, String> data) {
-        String email = tokenProvider.getEmailFromJWT(token.substring(7));
-        userService.changePassword(email, data.get("oldPassword"), data.get("newPassword"));
+    public ResponseEntity<?> changePassword(@RequestBody Map<String, String> data) {
+        userService.changePassword(getCurrentUserEmail(), data.get("oldPassword"), data.get("newPassword"));
         return ResponseEntity.ok("Đổi mật khẩu thành công!");
     }
 
@@ -92,29 +96,26 @@ public class UserController {
     }
 
     @PostMapping("/refresh-token")
-    public ResponseEntity<?> refreshToken(@RequestHeader("Authorization") String token) {
-        String jwt = token.substring(7);
-        if (tokenProvider.validateToken(jwt)) {
-            String email = tokenProvider.getEmailFromJWT(jwt);
-            String role = tokenProvider.getRoleFromJWT(jwt);
-            String newToken = tokenProvider.generateToken(email, role);
-            Map<String, String> response = new HashMap<>();
-            response.put("token", newToken);
-            return ResponseEntity.ok(response);
-        }
-        return ResponseEntity.badRequest().body("Token không hợp lệ!");
+    public ResponseEntity<?> refreshToken() {
+        // Lấy thông tin từ SecurityContextHolder thay vì parse token thô
+        String email = getCurrentUserEmail();
+        // Cần lấy thêm role từ SecurityContextHolder (đã được Filter nạp vào authorities)
+        String role = SecurityContextHolder.getContext().getAuthentication().getAuthorities().iterator().next().getAuthority().replace("ROLE_", "");
+        
+        String newToken = tokenProvider.generateToken(email, role);
+        Map<String, String> response = new HashMap<>();
+        response.put("token", newToken);
+        return ResponseEntity.ok(response);
     }
 
     @PutMapping("/profile")
-    public ResponseEntity<?> updateProfile(@RequestHeader("Authorization") String token, @RequestBody UserResponseDTO profileDTO) {
-        String email = tokenProvider.getEmailFromJWT(token.substring(7));
-        return ResponseEntity.ok(userService.updateProfile(email, profileDTO));
+    public ResponseEntity<?> updateProfile(@RequestBody UserResponseDTO profileDTO) {
+        return ResponseEntity.ok(userService.updateProfile(getCurrentUserEmail(), profileDTO));
     }
 
     @PutMapping("/doctor-profile")
-    public ResponseEntity<?> updateDoctorProfile(@RequestHeader("Authorization") String token, @RequestBody DoctorResponseDTO profileDTO) {
-        String email = tokenProvider.getEmailFromJWT(token.substring(7));
-        return ResponseEntity.ok(userService.updateDoctorProfile(email, profileDTO));
+    public ResponseEntity<?> updateDoctorProfile(@RequestBody DoctorResponseDTO profileDTO) {
+        return ResponseEntity.ok(userService.updateDoctorProfile(getCurrentUserEmail(), profileDTO));
     }
 
     @GetMapping("/{id}")

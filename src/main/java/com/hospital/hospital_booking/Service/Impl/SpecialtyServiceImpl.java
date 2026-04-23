@@ -6,6 +6,7 @@ import com.hospital.hospital_booking.Repository.SpecialtyRepository;
 import com.hospital.hospital_booking.Service.SpecialtyService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -37,6 +38,7 @@ public class SpecialtyServiceImpl implements SpecialtyService {
     }
 
     @Override
+    @Transactional
     public void deleteSpecialty(Long id) {
         specialtyRepository.deleteById(id);
     }

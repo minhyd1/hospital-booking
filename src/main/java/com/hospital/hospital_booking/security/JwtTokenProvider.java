@@ -1,10 +1,12 @@
 package com.hospital.hospital_booking.security;
 
+import jakarta.annotation.PostConstruct;
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
 import java.security.Key;
 import java.util.Date;
 
@@ -15,17 +17,26 @@ public class JwtTokenProvider {
     private String jwtSecret;
 
     @Value("${app.jwtExpirationInMs}")
-    private String jwtExpirationInMs;
+    private long jwtExpirationInMs;
 
-    // Tạo chìa khóa mã hóa từ chuỗi secret
+    private Key signingKey;
+
+    @PostConstruct
+    void init() {
+        if (jwtSecret == null || jwtSecret.isBlank()) {
+            throw new IllegalStateException("Missing required property: app.jwtSecret");
+        }
+        this.signingKey = Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8));
+    }
+
     private Key getSigningKey() {
-        return Keys.hmacShaKeyFor(jwtSecret.getBytes());
+        return signingKey;
     }
 
     // 1. Sinh ra Token từ Email (hoặc ID) của User
     public String generateToken(String email, String role) {
         Date now = new Date();
-        Date expiryDate = new Date(now.getTime() + Long.parseLong(jwtExpirationInMs));
+        Date expiryDate = new Date(now.getTime() + jwtExpirationInMs);
 
         return Jwts.builder()
                 .setSubject(email) // Đưa email vào trong payload của thẻ
