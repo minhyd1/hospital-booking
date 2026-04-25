@@ -4,130 +4,145 @@
  */
 
 (() => {
-  const API_BASE = "";
-  const STORAGE_KEY = "hb_session";
+    const API_BASE = "";
+    const STORAGE_KEY = "hb_session";
 
-  // --- STATE MANAGEMENT ---
-  const state = {
-    token: null,
-    user: null, // { id, email, fullName, role }
-    loading: false,
-    notice: null, // { type: 'success'|'danger'|'info', message }
-    specialties: [],
-    currentRoute: "/",
-    routeParams: {},
-  };
+    // --- STATE MANAGEMENT ---
+    const state = {
+        token: null,
+        user: null, // { id, email, fullName, role }
+        loading: false,
+        notice: null, // { type: 'success'|'danger'|'info', message }
+        specialties: [],
+        currentRoute: "/",
+        routeParams: {},
+    };
 
-  // --- UTILITIES ---
-  const h = (str) => String(str ?? "").replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+    // --- UTILITIES ---
+    const h = (str) => String(str ?? "").replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
 
-  const formatDateTime = (dt) => {
-    if (!dt) return "-";
-    return new Date(dt).toLocaleString("vi-VN", {
-      year: "numeric", month: "2-digit", day: "2-digit",
-      hour: "2-digit", minute: "2-digit"
-    });
-  };
+    const formatDateTime = (dt) => {
+        if (!dt) return "-";
+        return new Date(dt).toLocaleString("vi-VN", {
+            year: "numeric", month: "2-digit", day: "2-digit",
+            hour: "2-digit", minute: "2-digit"
+        });
+    };
 
-  const formatCurrency = (val) => {
-    if (val === null || val === undefined) return "-";
-    return new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" }).format(val);
-  };
+    const formatCurrency = (val) => {
+        if (val === null || val === undefined) return "-";
+        return new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" }).format(val);
+    };
 
-  const setNotice = (type, message) => {
-    state.notice = message ? { type, message } : null;
-    render();
-  };
 
-  const setLoading = (val) => {
-    state.loading = val;
-    render();
-  };
+    const renderTimeRemaining = (t) => {
+        if (!t) return "";
+        if (t === "Đã qua giờ hẹn") {
+            return `<div class="small mt-1"><span class="badge bg-danger">Đã qua giờ hẹn</span></div>`;
+        }
+        return `<div class="text-info small">${t}</div>`;
+    };
+    const setNotice = (type, message) => {
+        state.notice = message ? { type, message } : null;
+        render();
+    };
 
-  // --- SESSION ---
-  const loadSession = () => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      const { token, user } = JSON.parse(saved);
-      state.token = token;
-      state.user = user;
+    const setLoading = (val) => {
+        state.loading = val;
+        render();
+    };
+
+    // --- SESSION ---
+    const loadSession = () => {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+            const { token, user } = JSON.parse(saved);
+            state.token = token;
+            state.user = user;
+        }
+    };
+
+    const saveSession = (token, user) => {
+        state.token = token;
+        state.user = user;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ token, user }));
+    };
+
+    const clearSession = () => {
+        state.token = null;
+        state.user = null;
+        localStorage.removeItem(STORAGE_KEY);
+        navigate("/login");
+    };
+
+    // --- API CALLER ---
+    async function callApi(path, options = {}) {
+        const url = API_BASE + path;
+        const headers = { "Accept": "application/json", ...(options.headers || {}) };
+        if (options.json) headers["Content-Type"] = "application/json";
+        if (state.token && options.auth !== false) headers["Authorization"] = `Bearer ${state.token}`;
+
+        try {
+            const res = await fetch(url, {
+                method: options.method || "GET",
+                headers,
+                body: options.json ? JSON.stringify(options.json) : options.body,
+            });
+
+            if (res.status === 401) {
+                // Hết hạn token → logout
+                if (state.token) clearSession();
+            }
+            if (res.status === 403) {
+                // Không đủ quyền → throw lỗi, KHÔNG logout
+                const errData = (res.headers.get("content-type") || "").includes("application/json")
+                    ? await res.json() : await res.text();
+                throw new Error(typeof errData === "string" ? errData : (errData.message || "Bạn không có quyền thực hiện thao tác này!"));
+            }
+
+            const isJson = (res.headers.get("content-type") || "").includes("application/json");
+            const data = isJson ? await res.json() : await res.text();
+
+            if (!res.ok) {
+                throw new Error(data.message || data.error || `Lỗi ${res.status}`);
+            }
+            return data;
+        } catch (err) {
+            console.error(`API Error [${path}]:`, err);
+            throw err;
+        }
     }
-  };
 
-  const saveSession = (token, user) => {
-    state.token = token;
-    state.user = user;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ token, user }));
-  };
+    // --- ROUTING ---
+    const navigate = (path) => {
+        window.location.hash = path;
+    };
 
-  const clearSession = () => {
-    state.token = null;
-    state.user = null;
-    localStorage.removeItem(STORAGE_KEY);
-    navigate("/login");
-  };
+    const handleRoute = async () => {
+        const hash = window.location.hash || "#/";
+        state.currentRoute = hash.replace(/^#/, "") || "/";
+        state.notice = null; // Clear notice on navigate
+        render();
+    };
 
-  // --- API CALLER ---
-  async function callApi(path, options = {}) {
-    const url = API_BASE + path;
-    const headers = { "Accept": "application/json", ...(options.headers || {}) };
-    if (options.json) headers["Content-Type"] = "application/json";
-    if (state.token && options.auth !== false) headers["Authorization"] = `Bearer ${state.token}`;
+    window.addEventListener("hashchange", handleRoute);
 
-    try {
-      const res = await fetch(url, {
-        method: options.method || "GET",
-        headers,
-        body: options.json ? JSON.stringify(options.json) : options.body,
-      });
+    // --- VIEWS ---
 
-      if (res.status === 401 || res.status === 403) {
-        if (state.token) clearSession();
-      }
+    const viewLayout = (content) => {
+        const user = state.user;
+        const isAdmin = user?.role === "ADMIN";
+        const isDoctor = user?.role === "DOCTOR";
 
-      const isJson = (res.headers.get("content-type") || "").includes("application/json");
-      const data = isJson ? await res.json() : await res.text();
+        const navLinks = [
+            { path: "/", label: "Trang chủ", show: true },
+            { path: "/book", label: "Đặt lịch", show: user?.role === "PATIENT" },
+            { path: "/appointments", label: "Lịch hẹn", show: !!user },
+            { path: "/doctor/schedule", label: "Lịch làm việc", show: isDoctor },
+            { path: "/admin/dashboard", label: "Quản trị", show: isAdmin },
+        ];
 
-      if (!res.ok) {
-        throw new Error(data.message || data.error || `Lỗi ${res.status}`);
-      }
-      return data;
-    } catch (err) {
-      console.error(`API Error [${path}]:`, err);
-      throw err;
-    }
-  }
-
-  // --- ROUTING ---
-  const navigate = (path) => {
-    window.location.hash = path;
-  };
-
-  const handleRoute = async () => {
-    const hash = window.location.hash || "#/";
-    state.currentRoute = hash.replace(/^#/, "") || "/";
-    state.notice = null; // Clear notice on navigate
-    render();
-  };
-
-  window.addEventListener("hashchange", handleRoute);
-
-  // --- VIEWS ---
-
-  const viewLayout = (content) => {
-    const user = state.user;
-    const isAdmin = user?.role === "ADMIN";
-    const isDoctor = user?.role === "DOCTOR";
-
-    const navLinks = [
-      { path: "/", label: "Trang chủ", show: true },
-      { path: "/book", label: "Đặt lịch", show: user?.role === "PATIENT" },
-      { path: "/appointments", label: "Lịch hẹn", show: !!user },
-      { path: "/doctor/schedule", label: "Lịch làm việc", show: isDoctor },
-      { path: "/admin/dashboard", label: "Quản trị", show: isAdmin },
-    ];
-
-    return `
+        return `
       <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm sticky-top">
         <div class="container">
           <a class="navbar-brand fw-bold" href="#/">🏥 HospitalBooking</a>
@@ -179,10 +194,10 @@
         </div>
       </footer>
     `;
-  };
+    };
 
-  const viewHome = () => {
-    return `
+    const viewHome = () => {
+        return `
       <div class="row align-items-center g-5 py-5">
         <div class="col-lg-6">
           <h1 class="display-4 fw-bold lh-1 mb-3 text-primary">Chăm sóc sức khỏe toàn diện cho bạn</h1>
@@ -226,9 +241,9 @@
         </div>
       </div>
     `;
-  };
+    };
 
-  const viewLogin = () => `
+    const viewLogin = () => `
     <div class="row justify-content-center py-5">
       <div class="col-md-5">
         <div class="card shadow border-0 rounded-4">
@@ -263,7 +278,7 @@
     </div>
   `;
 
-  const viewRegister = () => `
+    const viewRegister = () => `
     <div class="row justify-content-center py-5">
       <div class="col-md-6">
         <div class="card shadow border-0 rounded-4">
@@ -303,7 +318,7 @@
     </div>
   `;
 
-  const viewForgotPassword = () => `
+    const viewForgotPassword = () => `
     <div class="row justify-content-center py-5">
       <div class="col-md-5">
         <div class="card shadow border-0 rounded-4">
@@ -330,9 +345,9 @@
     </div>
   `;
 
-  const viewBook = (data) => {
-    const { specialties, doctors, slots, selected } = data;
-    return `
+    const viewBook = (data) => {
+        const { specialties, doctors, slots, selected } = data;
+        return `
       <h2 class="fw-bold mb-4">📅 Đặt lịch khám bệnh</h2>
       <div class="row g-4">
         <div class="col-md-8">
@@ -396,11 +411,12 @@
         </div>
       </div>
     `;
-  };
+    };
 
-  const viewAppointments = (data) => {
-    const { upcoming, history } = data;
-    const renderTable = (list, canCancel) => `
+    const viewAppointments = (data) => {
+        const { upcoming, history } = data;
+        const user = state.user; // lấy user từ state để dùng trong renderTable
+        const renderTable = (list, canCancel) => `
       <div class="table-responsive">
         <table class="table align-middle table-hover">
           <thead class="table-light">
@@ -420,7 +436,7 @@
                 <td><span class="text-muted small">#${a.appointmentId}</span></td>
                 <td>
                   <div class="fw-bold">${formatDateTime(a.appointmentDateTime)}</div>
-                  <div class="text-info small">${a.timeRemaining || ""}</div>
+                  ${renderTimeRemaining(a.timeRemaining)}
                 </td>
                 <td>
                   <div class="fw-semibold">${h(a.partnerName)}</div>
@@ -439,7 +455,7 @@
       </div>
     `;
 
-    return `
+        return `
       <h2 class="fw-bold mb-4">📋 Lịch hẹn của tôi</h2>
       <div class="card border-0 shadow-sm rounded-4 mb-4">
         <div class="card-header bg-white border-bottom py-3">
@@ -458,9 +474,85 @@
         </div>
       </div>
     `;
-  };
+    };
 
-  const viewProfile = (me) => `
+    // View riêng cho ADMIN: hiển thị toàn bộ lịch hẹn hệ thống
+    // Cột: ID, Thời gian, Bệnh nhân, Bác sĩ, Chuyên khoa, Triệu chứng, Trạng thái, Hành động
+    const viewAdminAppointments = (data) => {
+        const { upcoming, history } = data;
+
+        const statusBadge = (s) => {
+            const map = { PENDING: 'bg-warning text-dark', CONFIRMED: 'bg-primary', COMPLETED: 'bg-success', CANCELLED: 'bg-danger' };
+            return `<span class="badge ${map[s] || 'bg-secondary'}">${s}</span>`;
+        };
+
+        const renderAdminTable = (list, canAct) => `
+      <div class="table-responsive">
+        <table class="table align-middle table-hover">
+          <thead class="table-light">
+            <tr>
+              <th>ID</th>
+              <th>Thời gian</th>
+              <th>Bệnh nhân</th>
+              <th>Bác sĩ</th>
+              <th>Chuyên khoa</th>
+              <th>Triệu chứng</th>
+              <th>Trạng thái</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${list.length ? list.map(a => `
+              <tr>
+                <td><span class="text-muted small">#${a.appointmentId}</span></td>
+                <td>
+                  <div class="fw-bold">${formatDateTime(a.appointmentDateTime)}</div>
+                  ${renderTimeRemaining(a.timeRemaining)}
+                </td>
+                <td><div class="fw-semibold">${h(a.patientName || a.partnerName || "-")}</div></td>
+                <td><div class="fw-semibold">${h(a.doctorName || "-")}</div></td>
+                <td><span class="badge bg-light text-dark border">${h(a.specialtyName)}</span></td>
+                <td><div class="text-truncate small" style="max-width:130px;" title="${h(a.symptoms)}">${h(a.symptoms || "-")}</div></td>
+                <td>${statusBadge(a.status)}</td>
+                <td class="text-end" style="white-space:nowrap;">
+                  ${a.meetingLink ? `<a href="${a.meetingLink}" target="_blank" class="btn btn-sm btn-info text-white me-1">Meeting</a>` : ""}
+                  ${canAct && (a.status === "PENDING" || a.status === "CONFIRMED") ? `
+                    <button class="btn btn-sm btn-success me-1 confirmApptBtn" data-id="${a.appointmentId}">Duyệt</button>
+                    <button class="btn btn-sm btn-outline-danger adminCancelBtn" data-id="${a.appointmentId}">Huỷ</button>
+                  ` : ""}
+                  ${canAct && a.status === "CONFIRMED" ? `
+                    <button class="btn btn-sm btn-primary completeApptBtn" data-id="${a.appointmentId}">Hoàn thành</button>
+                  ` : ""}
+                </td>
+              </tr>
+            `).join("") : '<tr><td colspan="8" class="text-center py-4 text-muted">Không có lịch hẹn nào.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    `;
+
+        return `
+      <h2 class="fw-bold mb-4">📋 Quản lý lịch hẹn</h2>
+      <div class="card border-0 shadow-sm rounded-4 mb-4">
+        <div class="card-header bg-white border-bottom py-3">
+          <h5 class="mb-0 fw-bold text-primary">Lịch hẹn đang hoạt động</h5>
+        </div>
+        <div class="card-body p-0">
+          ${renderAdminTable(upcoming, true)}
+        </div>
+      </div>
+      <div class="card border-0 shadow-sm rounded-4">
+        <div class="card-header bg-white border-bottom py-3">
+          <h5 class="mb-0 fw-bold text-secondary">Lịch sử khám bệnh</h5>
+        </div>
+        <div class="card-body p-0">
+          ${renderAdminTable(history, false)}
+        </div>
+      </div>
+    `;
+    };
+
+    const viewProfile = (me) => `
     <h2 class="fw-bold mb-4">👤 Thông tin cá nhân</h2>
     <div class="row g-4">
       <div class="col-md-7">
@@ -506,16 +598,16 @@
     </div>
   `;
 
-  const viewAdminDashboard = (stats) => {
-    const s = stats || {};
-    const cards = [
-      { label: "Tổng lịch hẹn", val: s.totalAppointments, icon: "📅", color: "primary" },
-      { label: "Người dùng", val: s.totalUsers, icon: "👥", color: "info" },
-      { label: "Chuyên khoa", val: s.totalSpecialties, icon: "🏥", color: "success" },
-      { label: "Doanh thu", val: formatCurrency(s.totalRevenue), icon: "💰", color: "warning" },
-    ];
+    const viewAdminDashboard = (stats) => {
+        const s = stats || {};
+        const cards = [
+            { label: "Tổng lịch hẹn", val: s.totalAppointments, icon: "📅", color: "primary" },
+            { label: "Người dùng", val: s.totalUsers, icon: "👥", color: "info" },
+            { label: "Chuyên khoa", val: s.totalSpecialties, icon: "🏥", color: "success" },
+            { label: "Doanh thu", val: formatCurrency(s.totalRevenue), icon: "💰", color: "warning" },
+        ];
 
-    return `
+        return `
       <div class="d-flex justify-content-between align-items-center mb-4">
         <h2 class="fw-bold mb-0">📊 Bảng quản trị</h2>
         <div class="btn-group shadow-sm">
@@ -562,11 +654,11 @@
         </div>
       </div>
     `;
-  };
+    };
 
-  const viewAdminUsers = (data) => {
-    const { users, page, totalPages, roleFilter } = data;
-    return `
+    const viewAdminUsers = (data) => {
+        const { users, page, totalPages, roleFilter } = data;
+        return `
       <div class="d-flex justify-content-between align-items-center mb-4">
         <h2 class="fw-bold mb-0">👥 Quản lý người dùng</h2>
         <a href="#/admin/dashboard" class="btn btn-link text-decoration-none">← Quay lại</a>
@@ -667,9 +759,9 @@
         </div>
       </div>
     `;
-  };
+    };
 
-  const viewAdminSpecialties = (list) => `
+    const viewAdminSpecialties = (list) => `
     <div class="d-flex justify-content-between align-items-center mb-4">
       <h2 class="fw-bold mb-0">🏥 Quản lý chuyên khoa</h2>
       <a href="#/admin/dashboard" class="btn btn-link text-decoration-none">← Quay lại</a>
@@ -726,7 +818,7 @@
     </div>
   `;
 
-  const viewDoctorSchedule = (slots, selectedDate) => `
+    const viewDoctorSchedule = (slots, selectedDate) => `
     <h2 class="fw-bold mb-4">👨‍⚕️ Quản lý lịch làm việc</h2>
     <div class="row g-4">
       <div class="col-md-4">
@@ -800,333 +892,381 @@
     </div>
   `;
 
-  // --- RENDERING LOGIC ---
+    // --- RENDERING LOGIC ---
 
-  const render = async () => {
-    const app = document.getElementById("app");
-    let content = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
+    const render = async () => {
+        const app = document.getElementById("app");
+        let content = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
 
-    // Preliminary data fetching for specific routes
-    const r = state.currentRoute;
-    try {
-      if (state.token && !state.user?.id) {
-        state.user = await callApi("/api/users/me");
-      }
-
-      if (r === "/") {
-        content = viewHome();
-      } else if (r === "/login") {
-        content = viewLogin();
-      } else if (r === "/register") {
-        content = viewRegister();
-      } else if (r === "/forgot-password") {
-        content = viewForgotPassword();
-      } else if (r === "/book") {
-        if (state.user && state.user.role !== "PATIENT") {
-          navigate("/");
-          return;
-        }
-        if (!state.specialties.length) state.specialties = await callApi("/api/specialties", { auth: false });
-        const specId = state.routeParams.specId || "";
-        const docId = state.routeParams.docId || "";
-        const date = state.routeParams.date || "";
-
-        let doctors = [];
-        if (specId) doctors = await callApi(`/api/users/doctors?specialtyId=${specId}`, { auth: false });
-
-        let slots = [];
-        if (docId && date) slots = await callApi(`/api/schedule/available?doctorId=${docId}&date=${date}`);
-
-        content = viewBook({ specialties: state.specialties, doctors, slots, selected: { specId, docId, date } });
-      } else if (r === "/appointments") {
-        if (!state.user) return navigate("/login");
-        const id = state.user.id;
-        const isDoc = state.user.role === "DOCTOR";
-        const prefix = isDoc ? "doctor" : "patient";
-        const upcoming = await callApi(`/api/appointments/upcoming/${prefix}/${id}`);
-        const history = await callApi(`/api/appointments/history/${prefix}/${id}`);
-        content = viewAppointments({ upcoming, history });
-      } else if (r === "/profile") {
-        if (!state.user) return navigate("/login");
-        const me = await callApi("/api/users/me");
-        content = viewProfile(me);
-      } else if (r === "/admin/dashboard") {
-        if (state.user?.role !== "ADMIN") return navigate("/");
-        const stats = await callApi("/api/statistics");
-        content = viewAdminDashboard(stats);
-      } else if (r === "/admin/users") {
-        if (state.user?.role !== "ADMIN") return navigate("/");
-        const role = state.routeParams.role || "";
-        const page = parseInt(state.routeParams.page || "0");
-        const data = await callApi(`/api/users?page=${page}&size=10${role ? `&role=${role}` : ""}`);
-        content = viewAdminUsers({ users: data.data, page: data.currentPage, totalPages: data.totalPages, roleFilter: role });
-      } else if (r === "/admin/specialties") {
-        if (state.user?.role !== "ADMIN") return navigate("/");
-        const list = await callApi("/api/specialties", { auth: false });
-        content = viewAdminSpecialties(list);
-      } else if (r === "/doctor/schedule") {
-        if (state.user?.role !== "DOCTOR" && state.user?.role !== "ADMIN") return navigate("/");
-        const date = state.routeParams.date || new Date().toISOString().split('T')[0];
-        const slots = await callApi(`/api/schedule/available?doctorId=${state.user.id}&date=${date}`);
-        content = viewDoctorSchedule(slots, date);
-      } else {
-        content = '<div class="text-center py-5"><h3>404 - Trang không tồn tại</h3><a href="#/">Quay lại trang chủ</a></div>';
-      }
-    } catch (err) {
-      content = `<div class="alert alert-danger shadow-sm"><strong>Lỗi:</strong> ${h(err.message)}</div><div class="text-center"><button class="btn btn-primary" onclick="window.location.reload()">Tải lại trang</button></div>`;
-    }
-
-    app.innerHTML = viewLayout(content);
-    attachEvents();
-  };
-
-  const attachEvents = () => {
-    // Global Close Notice
-    document.getElementById("closeNoticeBtn")?.addEventListener("click", () => setNotice(null, null));
-
-    // Logout
-    document.getElementById("logoutBtn")?.addEventListener("click", clearSession);
-
-    // Login Form
-    document.getElementById("loginForm")?.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const fd = new FormData(e.target);
-      setLoading(true);
-      try {
-        const res = await callApi("/api/users/login", {
-          method: "POST",
-          json: Object.fromEntries(fd),
-          auth: false
-        });
-        const role = res.role?.name || res.role;
-        saveSession(res.token, { id: res.id, email: res.email, fullName: res.fullName, role });
-        setNotice("success", "Chào mừng quay trở lại!");
-        navigate("/");
-      } catch (err) {
-        setNotice("danger", err.message);
-      } finally {
-        setLoading(false);
-      }
-    });
-
-    // Register Form
-    document.getElementById("registerForm")?.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const fd = new FormData(e.target);
-      setLoading(true);
-      try {
-        await callApi("/api/users/register", { method: "POST", json: Object.fromEntries(fd), auth: false });
-        setNotice("success", "Đăng ký thành công! Vui lòng đăng nhập.");
-        navigate("/login");
-      } catch (err) {
-        setNotice("danger", err.message);
-      } finally {
-        setLoading(false);
-      }
-    });
-
-    // Forgot Password
-    document.getElementById("forgotForm")?.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const email = e.target.email.value;
-      setLoading(true);
-      try {
-        await callApi("/api/users/forgot-password", { method: "POST", json: { email }, auth: false });
-        setNotice("success", "Yêu cầu đã được gửi. Vui lòng kiểm tra email.");
-        navigate("/login");
-      } catch (err) {
-        setNotice("danger", err.message);
-      } finally {
-        setLoading(false);
-      }
-    });
-
-    // Booking Selects
-    document.getElementById("bookSpec")?.addEventListener("change", (e) => {
-      state.routeParams = { specId: e.target.value };
-      render();
-    });
-    document.getElementById("bookDoc")?.addEventListener("change", (e) => {
-      state.routeParams.docId = e.target.value;
-      render();
-    });
-    document.getElementById("bookDate")?.addEventListener("change", (e) => {
-      state.routeParams.date = e.target.value;
-      render();
-    });
-
-    // Booking Submit
-    document.getElementById("bookForm")?.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const fd = new FormData(e.target);
-      const data = Object.fromEntries(fd);
-      if (!data.scheduleId) return setNotice("danger", "Vui lòng chọn khung giờ khám.");
-      setLoading(true);
-      try {
-        await callApi("/api/appointments/book", { method: "POST", json: { scheduleId: parseInt(data.scheduleId), symptoms: data.symptoms } });
-        setNotice("success", "Đặt lịch thành công!");
-        navigate("/appointments");
-      } catch (err) {
-        setNotice("danger", err.message);
-      } finally {
-        setLoading(false);
-      }
-    });
-
-    // Cancel Appointment
-    document.querySelectorAll(".cancelApptBtn").forEach(btn => {
-      btn.addEventListener("click", async () => {
-        if (!confirm("Bạn có chắc chắn muốn hủy lịch hẹn này?")) return;
+        // Preliminary data fetching for specific routes
+        const r = state.currentRoute;
         try {
-            const isDoctor = btn.dataset.role === "DOCTOR";
-            if (isDoctor) {
-                // PATCH thay đổi trạng thái → DOCTOR có quyền
-                await callApi(`/api/appointments/${id}/status?status=CANCELLED`, { method: "PATCH" });
-            } else {
-                // DELETE như cũ → PATIENT có quyền
-                await callApi(`/api/appointments/${id}`, { method: "DELETE" });
+            if (state.token && !state.user?.id) {
+                state.user = await callApi("/api/users/me");
             }
-          setNotice("success", "Đã hủy lịch hẹn.");
-          render();
+
+            if (r === "/") {
+                content = viewHome();
+            } else if (r === "/login") {
+                content = viewLogin();
+            } else if (r === "/register") {
+                content = viewRegister();
+            } else if (r === "/forgot-password") {
+                content = viewForgotPassword();
+            } else if (r === "/book") {
+                if (state.user && state.user.role !== "PATIENT") {
+                    navigate("/");
+                    return;
+                }
+                if (!state.specialties.length) state.specialties = await callApi("/api/specialties", { auth: false });
+                const specId = state.routeParams.specId || "";
+                const docId = state.routeParams.docId || "";
+                const date = state.routeParams.date || "";
+
+                let doctors = [];
+                if (specId) doctors = await callApi(`/api/users/doctors?specialtyId=${specId}`, { auth: false });
+
+                let slots = [];
+                if (docId && date) slots = await callApi(`/api/schedule/available?doctorId=${docId}&date=${date}`);
+
+                content = viewBook({ specialties: state.specialties, doctors, slots, selected: { specId, docId, date } });
+            } else if (r === "/appointments") {
+                if (!state.user) return navigate("/login");
+                const role = state.user.role;
+                const id = state.user.id;
+                let upcoming = [], history = [];
+                if (role === "ADMIN") {
+                    // ADMIN xem tất cả lịch hẹn qua GET /api/appointments
+                    const all = await callApi("/api/appointments");
+                    upcoming = all.filter(a => a.status === "PENDING" || a.status === "CONFIRMED");
+                    history  = all.filter(a => a.status === "COMPLETED" || a.status === "CANCELLED");
+                    content = viewAdminAppointments({ upcoming, history });
+                } else if (role === "DOCTOR") {
+                    upcoming = await callApi(`/api/appointments/upcoming/doctor/${id}`);
+                    history  = await callApi(`/api/appointments/history/doctor/${id}`);
+                    content = viewAppointments({ upcoming, history });
+                } else {
+                    upcoming = await callApi(`/api/appointments/upcoming/patient/${id}`);
+                    history  = await callApi(`/api/appointments/history/patient/${id}`);
+                    content = viewAppointments({ upcoming, history });
+                }
+            } else if (r === "/profile") {
+                if (!state.user) return navigate("/login");
+                const me = await callApi("/api/users/me");
+                content = viewProfile(me);
+            } else if (r === "/admin/dashboard") {
+                if (state.user?.role !== "ADMIN") return navigate("/");
+                const stats = await callApi("/api/statistics");
+                content = viewAdminDashboard(stats);
+            } else if (r === "/admin/users") {
+                if (state.user?.role !== "ADMIN") return navigate("/");
+                const role = state.routeParams.role || "";
+                const page = parseInt(state.routeParams.page || "0");
+                const data = await callApi(`/api/users?page=${page}&size=10${role ? `&role=${role}` : ""}`);
+                content = viewAdminUsers({ users: data.data, page: data.currentPage, totalPages: data.totalPages, roleFilter: role });
+            } else if (r === "/admin/specialties") {
+                if (state.user?.role !== "ADMIN") return navigate("/");
+                const list = await callApi("/api/specialties", { auth: false });
+                content = viewAdminSpecialties(list);
+            } else if (r === "/doctor/schedule") {
+                if (state.user?.role !== "DOCTOR" && state.user?.role !== "ADMIN") return navigate("/");
+                const date = state.routeParams.date || new Date().toISOString().split('T')[0];
+                const slots = await callApi(`/api/schedule/available?doctorId=${state.user.id}&date=${date}`);
+                content = viewDoctorSchedule(slots, date);
+            } else {
+                content = '<div class="text-center py-5"><h3>404 - Trang không tồn tại</h3><a href="#/">Quay lại trang chủ</a></div>';
+            }
         } catch (err) {
-          setNotice("danger", err.message);
+            content = `<div class="alert alert-danger shadow-sm"><strong>Lỗi:</strong> ${h(err.message)}</div><div class="text-center"><button class="btn btn-primary" onclick="window.location.reload()">Tải lại trang</button></div>`;
         }
-      });
-    });
 
-    // Profile & Password
-    document.getElementById("profileForm")?.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const fullName = e.target.fullName.value;
-      const phone = e.target.phone.value;
-      try {
-        await callApi("/api/users/profile", { method: "PUT", json: { fullName, phone } });
-        state.user.fullName = fullName;
-        saveSession(state.token, state.user);
-        setNotice("success", "Cập nhật hồ sơ thành công.");
-      } catch (err) {
-        setNotice("danger", err.message);
-      }
-    });
+        app.innerHTML = viewLayout(content);
+        attachEvents();
+    };
 
-    document.getElementById("passwordForm")?.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const fd = new FormData(e.target);
-      try {
-        await callApi("/api/users/change-password", { method: "POST", json: Object.fromEntries(fd) });
-        setNotice("success", "Đổi mật khẩu thành công.");
-        e.target.reset();
-      } catch (err) {
-        setNotice("danger", err.message);
-      }
-    });
+    const attachEvents = () => {
+        // Global Close Notice
+        document.getElementById("closeNoticeBtn")?.addEventListener("click", () => setNotice(null, null));
 
-    // Admin - Specialties
-    document.getElementById("specForm")?.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const fd = new FormData(e.target);
-      try {
-        await callApi("/api/specialties", { method: "POST", json: Object.fromEntries(fd) });
-        setNotice("success", "Thêm chuyên khoa thành công.");
-        render();
-      } catch (err) {
-        setNotice("danger", err.message);
-      }
-    });
+        // Logout
+        document.getElementById("logoutBtn")?.addEventListener("click", clearSession);
 
-    document.querySelectorAll(".deleteSpecBtn").forEach(btn => {
-      btn.addEventListener("click", async () => {
-        if (!confirm("Xóa chuyên khoa này?")) return;
-        try {
-          await callApi(`/api/specialties/${btn.dataset.id}`, { method: "DELETE" });
-          setNotice("success", "Đã xóa.");
-          render();
-        } catch (err) {
-          setNotice("danger", err.message);
-        }
-      });
-    });
+        // Login Form
+        document.getElementById("loginForm")?.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const fd = new FormData(e.target);
+            setLoading(true);
+            try {
+                const res = await callApi("/api/users/login", {
+                    method: "POST",
+                    json: Object.fromEntries(fd),
+                    auth: false
+                });
+                const role = res.role?.name || res.role;
+                saveSession(res.token, { id: res.id, email: res.email, fullName: res.fullName, role });
+                setNotice("success", "Chào mừng quay trở lại!");
+                navigate("/");
+            } catch (err) {
+                setNotice("danger", err.message);
+            } finally {
+                setLoading(false);
+            }
+        });
 
-    // Admin - Users
-    document.getElementById("userRoleFilter")?.addEventListener("change", (e) => {
-      state.routeParams = { role: e.target.value, page: 0 };
-      render();
-    });
+        // Register Form
+        document.getElementById("registerForm")?.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const fd = new FormData(e.target);
+            setLoading(true);
+            try {
+                await callApi("/api/users/register", { method: "POST", json: Object.fromEntries(fd), auth: false });
+                setNotice("success", "Đăng ký thành công! Vui lòng đăng nhập.");
+                navigate("/login");
+            } catch (err) {
+                setNotice("danger", err.message);
+            } finally {
+                setLoading(false);
+            }
+        });
 
-    document.querySelectorAll(".userPageLink").forEach(link => {
-      link.addEventListener("click", (e) => {
-        e.preventDefault();
-        state.routeParams.page = e.target.dataset.page;
-        render();
-      });
-    });
+        // Forgot Password
+        document.getElementById("forgotForm")?.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const email = e.target.email.value;
+            setLoading(true);
+            try {
+                await callApi("/api/users/forgot-password", { method: "POST", json: { email }, auth: false });
+                setNotice("success", "Yêu cầu đã được gửi. Vui lòng kiểm tra email.");
+                navigate("/login");
+            } catch (err) {
+                setNotice("danger", err.message);
+            } finally {
+                setLoading(false);
+            }
+        });
 
-    document.querySelectorAll(".deleteUserBtn").forEach(btn => {
-      btn.addEventListener("click", async () => {
-        if (!confirm("Xóa người dùng này?")) return;
-        try {
-          await callApi(`/api/users/${btn.dataset.id}`, { method: "DELETE" });
-          setNotice("success", "Đã xóa.");
-          render();
-        } catch (err) {
-          setNotice("danger", err.message);
-        }
-      });
-    });
+        // Booking Selects
+        document.getElementById("bookSpec")?.addEventListener("change", (e) => {
+            state.routeParams = { specId: e.target.value };
+            render();
+        });
+        document.getElementById("bookDoc")?.addEventListener("change", (e) => {
+            state.routeParams.docId = e.target.value;
+            render();
+        });
+        document.getElementById("bookDate")?.addEventListener("change", (e) => {
+            state.routeParams.date = e.target.value;
+            render();
+        });
 
-    // Admin - Create User Submit
-    document.getElementById("adminCreateUserForm")?.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const fd = new FormData(e.target);
-      setLoading(true);
-      try {
-        await callApi("/api/users/register", { method: "POST", json: Object.fromEntries(fd), auth: false });
-        setNotice("success", "Tạo tài khoản thành công!");
-        e.target.reset();
-        render();
-      } catch (err) {
-        setNotice("danger", err.message);
-      } finally {
-        setLoading(false);
-      }
-    });
+        // Booking Submit
+        document.getElementById("bookForm")?.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const fd = new FormData(e.target);
+            const data = Object.fromEntries(fd);
+            if (!data.scheduleId) return setNotice("danger", "Vui lòng chọn khung giờ khám.");
+            setLoading(true);
+            try {
+                await callApi("/api/appointments/book", { method: "POST", json: { scheduleId: parseInt(data.scheduleId), symptoms: data.symptoms } });
+                setNotice("success", "Đặt lịch thành công!");
+                navigate("/appointments");
+            } catch (err) {
+                setNotice("danger", err.message);
+            } finally {
+                setLoading(false);
+            }
+        });
 
-    // Doctor - Schedule
-    document.getElementById("scheduleDateFilter")?.addEventListener("change", (e) => {
-      state.routeParams.date = e.target.value;
-      render();
-    });
+        // Cancel Appointment
+        // PATIENT  → DELETE /api/appointments/{id}
+        // DOCTOR   → PATCH  /api/appointments/{id}/status?status=CANCELLED
+        document.querySelectorAll(".cancelApptBtn").forEach(btn => {
+            btn.addEventListener("click", async () => {
+                if (!confirm("Bạn có chắc chắn muốn hủy lịch hẹn này?")) return;
+                try {
+                    const isDoctor = btn.dataset.role === "DOCTOR";
+                    if (isDoctor) {
+                        await callApi(`/api/appointments/${btn.dataset.id}/status?status=CANCELLED`, { method: "PATCH" });
+                    } else {
+                        await callApi(`/api/appointments/${btn.dataset.id}`, { method: "DELETE" });
+                    }
+                    setNotice("success", "Đã hủy lịch hẹn.");
+                    render();
+                } catch (err) {
+                    setNotice("danger", err.message);
+                }
+            });
+        });
 
-    document.getElementById("scheduleForm")?.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const fd = new FormData(e.target);
-      const json = Object.fromEntries(fd);
-      json.doctorId = state.user.id;
-      try {
-        await callApi("/api/schedule", { method: "POST", json });
-        setNotice("success", "Đã tạo lịch làm việc.");
-        render();
-      } catch (err) {
-        setNotice("danger", err.message);
-      }
-    });
+        // ADMIN: Duyệt lịch hẹn PENDING → CONFIRMED
+        document.querySelectorAll(".confirmApptBtn").forEach(btn => {
+            btn.addEventListener("click", async () => {
+                if (!confirm("Duyệt lịch hẹn này?")) return;
+                try {
+                    await callApi(`/api/appointments/${btn.dataset.id}/status?status=CONFIRMED`, { method: "PATCH" });
+                    setNotice("success", "Đã duyệt lịch hẹn!");
+                    render();
+                } catch (err) { setNotice("danger", err.message); }
+            });
+        });
 
-    document.querySelectorAll(".deleteSlotBtn").forEach(btn => {
-      btn.addEventListener("click", async () => {
-        if (!confirm("Xóa ca làm việc này?")) return;
-        try {
-          await callApi(`/api/schedule/${btn.dataset.id}`, { method: "DELETE" });
-          setNotice("success", "Đã xóa.");
-          render();
-        } catch (err) {
-          setNotice("danger", err.message);
-        }
-      });
-    });
-  };
+        // ADMIN: Đánh dấu hoàn thành → COMPLETED
+        document.querySelectorAll(".completeApptBtn").forEach(btn => {
+            btn.addEventListener("click", async () => {
+                if (!confirm("Đánh dấu lịch hẹn này là hoàn thành?")) return;
+                try {
+                    await callApi(`/api/appointments/${btn.dataset.id}/status?status=COMPLETED`, { method: "PATCH" });
+                    setNotice("success", "Đã cập nhật trạng thái hoàn thành!");
+                    render();
+                } catch (err) { setNotice("danger", err.message); }
+            });
+        });
 
-  // --- INITIALIZATION ---
-  loadSession();
-  handleRoute();
+        // ADMIN: Huỷ lịch hẹn → CANCELLED
+        document.querySelectorAll(".adminCancelBtn").forEach(btn => {
+            btn.addEventListener("click", async () => {
+                if (!confirm("Huỷ lịch hẹn này?")) return;
+                try {
+                    await callApi(`/api/appointments/${btn.dataset.id}/status?status=CANCELLED`, { method: "PATCH" });
+                    setNotice("success", "Đã huỷ lịch hẹn!");
+                    render();
+                } catch (err) { setNotice("danger", err.message); }
+            });
+        });
+
+        // Profile & Password
+        document.getElementById("profileForm")?.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const fullName = e.target.fullName.value;
+            const phone = e.target.phone.value;
+            try {
+                await callApi("/api/users/profile", { method: "PUT", json: { fullName, phone } });
+                state.user.fullName = fullName;
+                saveSession(state.token, state.user);
+                setNotice("success", "Cập nhật hồ sơ thành công.");
+            } catch (err) {
+                setNotice("danger", err.message);
+            }
+        });
+
+        document.getElementById("passwordForm")?.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const fd = new FormData(e.target);
+            try {
+                await callApi("/api/users/change-password", { method: "POST", json: Object.fromEntries(fd) });
+                setNotice("success", "Đổi mật khẩu thành công.");
+                e.target.reset();
+            } catch (err) {
+                setNotice("danger", err.message);
+            }
+        });
+
+        // Admin - Specialties
+        document.getElementById("specForm")?.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const fd = new FormData(e.target);
+            try {
+                await callApi("/api/specialties", { method: "POST", json: Object.fromEntries(fd) });
+                setNotice("success", "Thêm chuyên khoa thành công.");
+                render();
+            } catch (err) {
+                setNotice("danger", err.message);
+            }
+        });
+
+        document.querySelectorAll(".deleteSpecBtn").forEach(btn => {
+            btn.addEventListener("click", async () => {
+                if (!confirm("Xóa chuyên khoa này?")) return;
+                try {
+                    await callApi(`/api/specialties/${btn.dataset.id}`, { method: "DELETE" });
+                    setNotice("success", "Đã xóa.");
+                    render();
+                } catch (err) {
+                    setNotice("danger", err.message);
+                }
+            });
+        });
+
+        // Admin - Users
+        document.getElementById("userRoleFilter")?.addEventListener("change", (e) => {
+            state.routeParams = { role: e.target.value, page: 0 };
+            render();
+        });
+
+        document.querySelectorAll(".userPageLink").forEach(link => {
+            link.addEventListener("click", (e) => {
+                e.preventDefault();
+                state.routeParams.page = e.target.dataset.page;
+                render();
+            });
+        });
+
+        document.querySelectorAll(".deleteUserBtn").forEach(btn => {
+            btn.addEventListener("click", async () => {
+                if (!confirm("Xóa người dùng này?")) return;
+                try {
+                    await callApi(`/api/users/${btn.dataset.id}`, { method: "DELETE" });
+                    setNotice("success", "Đã xóa.");
+                    render();
+                } catch (err) {
+                    setNotice("danger", err.message);
+                }
+            });
+        });
+
+        // Admin - Create User Submit
+        document.getElementById("adminCreateUserForm")?.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const fd = new FormData(e.target);
+            setLoading(true);
+            try {
+                await callApi("/api/users/register", { method: "POST", json: Object.fromEntries(fd), auth: false });
+                setNotice("success", "Tạo tài khoản thành công!");
+                e.target.reset();
+                render();
+            } catch (err) {
+                setNotice("danger", err.message);
+            } finally {
+                setLoading(false);
+            }
+        });
+
+        // Doctor - Schedule
+        document.getElementById("scheduleDateFilter")?.addEventListener("change", (e) => {
+            state.routeParams.date = e.target.value;
+            render();
+        });
+
+        document.getElementById("scheduleForm")?.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const fd = new FormData(e.target);
+            const json = Object.fromEntries(fd);
+            json.doctorId = state.user.id;
+            try {
+                await callApi("/api/schedule", { method: "POST", json });
+                setNotice("success", "Đã tạo lịch làm việc.");
+                render();
+            } catch (err) {
+                setNotice("danger", err.message);
+            }
+        });
+
+        document.querySelectorAll(".deleteSlotBtn").forEach(btn => {
+            btn.addEventListener("click", async () => {
+                if (!confirm("Xóa ca làm việc này?")) return;
+                try {
+                    await callApi(`/api/schedule/${btn.dataset.id}`, { method: "DELETE" });
+                    setNotice("success", "Đã xóa.");
+                    render();
+                } catch (err) {
+                    setNotice("danger", err.message);
+                }
+            });
+        });
+    };
+
+    // --- INITIALIZATION ---
+    loadSession();
+    handleRoute();
 
 })();

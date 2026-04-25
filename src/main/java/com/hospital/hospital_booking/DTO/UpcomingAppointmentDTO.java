@@ -23,4 +23,6 @@ public class UpcomingAppointmentDTO {
     private String meetingLink;
     private String symptoms;
     private String status;
+    private String patientName;
+    private String doctorName;
 }

@@ -20,22 +20,20 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class AppointmentServiceImpl implements AppointmentService {
-
     private final AppointmentRepository appointmentRepository;
     private final ScheduleRepository scheduleRepository;
     private final UserRepository userRepository;
 
-    // [SỬA LỖI ĐỎ 1] Hằng số: bệnh nhân chỉ được huỷ trước giờ khám ít nhất X tiếng
-    private static final long CANCEL_BEFORE_HOURS = 2;
+
 
     @Override
     @Transactional
     public Appointment createBooking(String patientEmail, BookingRequestDTO request) {
         User patient = userRepository.findByEmail(patientEmail)
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy bệnh nhân"));
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy Bệnh nhân"));
 
         Schedule schedule = scheduleRepository.findByIdWithLock(request.getScheduleId())
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy khung giờ khám"));
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy Khung giờ khám"));
 
         if (schedule.getIsBooked()) {
             throw new RuntimeException("Rất tiếc, khung giờ này đã có người đặt!");
@@ -48,7 +46,7 @@ public class AppointmentServiceImpl implements AppointmentService {
         appointment.setPatient(patient);
         appointment.setSchedule(schedule);
         appointment.setSymptoms(request.getSymptoms());
-        appointment.setStatus(AppointmentStatus.PENDING);
+        appointment.setStatus(AppointmentStatus.PENDING); // Đổi CONFIRMED -> PENDING theo nhận xét
 
         return appointmentRepository.save(appointment);
     }
@@ -58,13 +56,9 @@ public class AppointmentServiceImpl implements AppointmentService {
         LocalDateTime now = LocalDateTime.now();
         LocalDate today = now.toLocalDate();
 
-        List<AppointmentStatus> activeStatuses = List.of(
-                AppointmentStatus.PENDING,
-                AppointmentStatus.CONFIRMED);
-
         List<Appointment> appointments = appointmentRepository
-                .findByScheduleDoctorIdAndStatusInAndScheduleWorkingDateGreaterThanEqualOrderByScheduleStartTimeAsc(
-                        doctorId, activeStatuses, today);
+                .findByScheduleDoctorIdAndStatusAndScheduleWorkingDateGreaterThanEqualOrderByScheduleStartTimeAsc(
+                        doctorId, AppointmentStatus.CONFIRMED, today);
 
         return appointments.stream()
                 .filter(app -> getAppointmentDateTime(app).isAfter(now))
@@ -72,20 +66,14 @@ public class AppointmentServiceImpl implements AppointmentService {
                 .collect(Collectors.toList());
     }
 
-    // AppointmentServiceImpl.java — sửa getUpcomingForPatient
     @Override
     public List<UpcomingAppointmentDTO> getUpcomingForPatient(Long patientId) {
         LocalDateTime now = LocalDateTime.now();
         LocalDate today = now.toLocalDate();
 
-        // Lấy cả PENDING lẫn CONFIRMED thay vì chỉ CONFIRMED
-        List<AppointmentStatus> activeStatuses = List.of(
-                AppointmentStatus.PENDING,
-                AppointmentStatus.CONFIRMED);
-
         List<Appointment> appointments = appointmentRepository
-                .findByPatientIdAndStatusInAndScheduleWorkingDateGreaterThanEqualOrderByScheduleStartTimeAsc(
-                        patientId, activeStatuses, today);
+                .findByPatientIdAndStatusAndScheduleWorkingDateGreaterThanEqualOrderByScheduleStartTimeAsc(
+                        patientId, AppointmentStatus.CONFIRMED, today);
 
         return appointments.stream()
                 .filter(app -> getAppointmentDateTime(app).isAfter(now))
@@ -99,31 +87,16 @@ public class AppointmentServiceImpl implements AppointmentService {
         Appointment appointment = appointmentRepository.findById(appointmentId)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy lịch hẹn"));
 
+        // Kiểm tra quyền sở hữu (Security fix)
         User currentUser = userRepository.findByEmail(userEmail)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy người dùng"));
 
-        // Kiểm tra quyền sở hữu: chỉ đúng bệnh nhân mới được huỷ (ADMIN bypass)
-        if (currentUser.getRole() == Role.PATIENT
-                && !appointment.getPatient().getEmail().equals(userEmail)) {
-            throw new RuntimeException("Bạn không có quyền huỷ lịch hẹn này!");
+        if (currentUser.getRole() == Role.PATIENT && !appointment.getPatient().getEmail().equals(userEmail)) {
+            throw new RuntimeException("Bạn không có quyền hủy lịch hẹn này!");
         }
 
-        // Không huỷ lịch đã hoàn thành hoặc đã huỷ
-        if (appointment.getStatus() == AppointmentStatus.COMPLETED
-                || appointment.getStatus() == AppointmentStatus.CANCELLED) {
-            throw new RuntimeException("Lịch hẹn này không thể huỷ!");
-        }
-
-        // [SỬA LỖI ĐỎ 1] Bệnh nhân chỉ được huỷ trước giờ khám ít nhất CANCEL_BEFORE_HOURS
-        // ADMIN không bị giới hạn thời gian huỷ (nghiệp vụ thực tế)
-        if (currentUser.getRole() == Role.PATIENT) {
-            LocalDateTime appointmentDateTime = getAppointmentDateTime(appointment);
-            LocalDateTime deadline = appointmentDateTime.minusHours(CANCEL_BEFORE_HOURS);
-            if (LocalDateTime.now().isAfter(deadline)) {
-                throw new RuntimeException(
-                        "Chỉ được huỷ lịch trước giờ khám ít nhất "
-                                + CANCEL_BEFORE_HOURS + " tiếng! Vui lòng liên hệ bệnh viện để được hỗ trợ.");
-            }
+        if (appointment.getStatus() == AppointmentStatus.COMPLETED || appointment.getStatus() == AppointmentStatus.CANCELLED) {
+            throw new RuntimeException("Lịch hẹn này không thể hủy!");
         }
 
         appointment.setStatus(AppointmentStatus.CANCELLED);
@@ -134,10 +107,8 @@ public class AppointmentServiceImpl implements AppointmentService {
 
     @Override
     public List<UpcomingAppointmentDTO> getHistoryForPatient(Long patientId) {
-        List<AppointmentStatus> historyStatuses = List.of(
-                AppointmentStatus.COMPLETED, AppointmentStatus.CANCELLED);
-        List<Appointment> appointments = appointmentRepository
-                .findByPatientIdAndStatusInOrderByScheduleWorkingDateDesc(patientId, historyStatuses);
+        List<AppointmentStatus> historyStatuses = List.of(AppointmentStatus.COMPLETED, AppointmentStatus.CANCELLED);
+        List<Appointment> appointments = appointmentRepository.findByPatientIdAndStatusInOrderByScheduleWorkingDateDesc(patientId, historyStatuses);
         return appointments.stream()
                 .map(app -> buildUpcomingDTO(app, LocalDateTime.now(), false))
                 .collect(Collectors.toList());
@@ -145,10 +116,8 @@ public class AppointmentServiceImpl implements AppointmentService {
 
     @Override
     public List<UpcomingAppointmentDTO> getHistoryForDoctor(Long doctorId) {
-        List<AppointmentStatus> historyStatuses = List.of(
-                AppointmentStatus.COMPLETED, AppointmentStatus.CANCELLED);
-        List<Appointment> appointments = appointmentRepository
-                .findByScheduleDoctorIdAndStatusInOrderByScheduleWorkingDateDesc(doctorId, historyStatuses);
+        List<AppointmentStatus> historyStatuses = List.of(AppointmentStatus.COMPLETED, AppointmentStatus.CANCELLED);
+        List<Appointment> appointments = appointmentRepository.findByScheduleDoctorIdAndStatusInOrderByScheduleWorkingDateDesc(doctorId, historyStatuses);
         return appointments.stream()
                 .map(app -> buildUpcomingDTO(app, LocalDateTime.now(), true))
                 .collect(Collectors.toList());
@@ -178,8 +147,7 @@ public class AppointmentServiceImpl implements AppointmentService {
         if (date != null && !date.isEmpty()) {
             appointments = appointmentRepository.findByScheduleWorkingDate(LocalDate.parse(date));
         } else if (status != null && !status.isEmpty()) {
-            appointments = appointmentRepository.findByStatus(
-                    AppointmentStatus.valueOf(status.toUpperCase()));
+            appointments = appointmentRepository.findByStatus(AppointmentStatus.valueOf(status.toUpperCase()));
         } else if (doctorId != null) {
             appointments = appointmentRepository.findByScheduleDoctorId(doctorId);
         } else {
@@ -190,25 +158,21 @@ public class AppointmentServiceImpl implements AppointmentService {
                 .map(app -> buildUpcomingDTO(app, LocalDateTime.now(), false))
                 .collect(Collectors.toList());
     }
-
-    // ==================== PRIVATE HELPERS ====================
-
     private LocalDateTime getAppointmentDateTime(Appointment app) {
         return LocalDateTime.of(
                 app.getSchedule().getWorkingDate(),
-                app.getSchedule().getStartTime());
+                app.getSchedule().getStartTime()
+        );
     }
 
-    private UpcomingAppointmentDTO buildUpcomingDTO(Appointment app, LocalDateTime now,
-                                                    boolean isDoctorView) {
+    private UpcomingAppointmentDTO buildUpcomingDTO(Appointment app, LocalDateTime now, boolean isDoctorView) {
         LocalDateTime appDateTime = getAppointmentDateTime(app);
 
-        String partnerName = isDoctorView
-                ? app.getPatient().getFullName()
-                : "Bác sĩ " + app.getSchedule().getDoctor().getFullName();
+        String partnerName = isDoctorView ?
+                app.getPatient().getFullName() :
+                "Bác sĩ " + app.getSchedule().getDoctor().getFullName();
 
-        String specialtyName = app.getSchedule().getDoctor()
-                .getDoctorDetail().getSpecialty().getName();
+        String specialtyName = app.getSchedule().getDoctor().getDoctorDetail().getSpecialty().getName();
         String meetingLink = "https://meet.google.com/room-" + app.getId();
 
         return UpcomingAppointmentDTO.builder()
@@ -220,11 +184,17 @@ public class AppointmentServiceImpl implements AppointmentService {
                 .meetingLink(meetingLink)
                 .symptoms(app.getSymptoms())
                 .status(app.getStatus().name())
+                .patientName(app.getPatient().getFullName())
+                .doctorName("Bác sĩ " + app.getSchedule().getDoctor().getFullName())
                 .build();
     }
 
     private String calculateTimeRemaining(LocalDateTime now, LocalDateTime appTime) {
         Duration duration = Duration.between(now, appTime);
+        // Đã qua giờ hẹn → duration âm
+        if (duration.isNegative()) {
+            return "Đã qua giờ hẹn";
+        }
         long days = duration.toDays();
         long hours = duration.toHours() % 24;
         long minutes = duration.toMinutes() % 60;
@@ -233,10 +203,8 @@ public class AppointmentServiceImpl implements AppointmentService {
             return "Còn " + days + " ngày " + hours + " giờ";
         } else if (hours > 0) {
             return "Còn " + hours + " giờ " + minutes + " phút";
-        } else if (minutes > 0) {
-            return "Còn " + minutes + " phút";
         } else {
-            return "Đã qua giờ hẹn";
+            return "Còn " + minutes + " phút";
         }
     }
 }
