@@ -9,9 +9,11 @@ import java.util.List;
 public interface ScheduleService {
     List<Schedule> getAvailableSlots(Long doctorId, LocalDate date);
 
+    List<Schedule> getDoctorSlots(Long doctorId, LocalDate date);
+
     Schedule createSchedule(ScheduleRequestDTO scheduleDTO);
 
     void deleteSchedule(Long id);
 
-    void batchCreateSchedules(List<ScheduleRequestDTO> scheduleDTOs);
+    int batchCreateSchedules(List<ScheduleRequestDTO> scheduleDTOs);
 }

@@ -67,6 +67,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.PUT,    "/api/users/doctor-profile").hasRole("DOCTOR")
                         // DOCTOR tạo / xoá từng slot của chính mình
                         .requestMatchers(HttpMethod.POST,   "/api/schedule").hasRole("DOCTOR")
+                        .requestMatchers(HttpMethod.GET,    "/api/schedule/doctor").hasRole("DOCTOR")
                         .requestMatchers(HttpMethod.DELETE, "/api/schedule/**").hasRole("DOCTOR")
                         // Cập nhật trạng thái lịch hẹn (DOCTOR + ADMIN)
                         .requestMatchers(HttpMethod.PATCH,  "/api/appointments/*/status")

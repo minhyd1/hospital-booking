@@ -34,6 +34,11 @@ public class ScheduleServiceImpl implements ScheduleService {
     }
 
     @Override
+    public List<Schedule> getDoctorSlots(Long doctorId, LocalDate date) {
+        return scheduleRepository.findByDoctorIdAndWorkingDate(doctorId, date);
+    }
+
+    @Override
     public Schedule createSchedule(ScheduleRequestDTO dto) {
         User doctor = userRepository.findById(dto.getDoctorId())
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy bác sĩ"));
@@ -70,7 +75,8 @@ public class ScheduleServiceImpl implements ScheduleService {
     }
 
     @Override
-    public void batchCreateSchedules(List<ScheduleRequestDTO> dtos) {
+    public int batchCreateSchedules(List<ScheduleRequestDTO> dtos) {
+        if (dtos == null || dtos.isEmpty()) return 0;
         List<Schedule> schedules = dtos.stream().map(dto -> {
             User doctor = userRepository.findById(dto.getDoctorId())
                     .orElseThrow(() -> new RuntimeException(
@@ -85,5 +91,6 @@ public class ScheduleServiceImpl implements ScheduleService {
         }).collect(Collectors.toList());
 
         scheduleRepository.saveAll(schedules);
+        return schedules.size();
     }
 }

@@ -56,9 +56,13 @@
     const loadSession = () => {
         const saved = localStorage.getItem(STORAGE_KEY);
         if (saved) {
-            const { token, user } = JSON.parse(saved);
-            state.token = token;
-            state.user = user;
+      try {
+        const { token, user } = JSON.parse(saved);
+        state.token = token;
+        state.user = user;
+      } catch {
+        localStorage.removeItem(STORAGE_KEY);
+      }
         }
     };
 
@@ -89,24 +93,28 @@
                 body: options.json ? JSON.stringify(options.json) : options.body,
             });
 
-            if (res.status === 401) {
-                // Hết hạn token → logout
-                if (state.token) clearSession();
-            }
-            if (res.status === 403) {
-                // Không đủ quyền → throw lỗi, KHÔNG logout
-                const errData = (res.headers.get("content-type") || "").includes("application/json")
-                    ? await res.json() : await res.text();
-                throw new Error(typeof errData === "string" ? errData : (errData.message || "Bạn không có quyền thực hiện thao tác này!"));
-            }
+      const contentType = res.headers.get("content-type") || "";
+      const rawText = await res.text();
+      let data = rawText;
 
-            const isJson = (res.headers.get("content-type") || "").includes("application/json");
-            const data = isJson ? await res.json() : await res.text();
+      if (contentType.includes("application/json")) {
+        try {
+          data = rawText ? JSON.parse(rawText) : null;
+        } catch {
+          data = rawText;
+        }
+      }
 
-            if (!res.ok) {
-                throw new Error(data.message || data.error || `Lỗi ${res.status}`);
-            }
-            return data;
+      if (res.status === 401) {
+        if (state.token) clearSession();
+      }
+
+      if (!res.ok) {
+        if (typeof data === "string") throw new Error(data || `Lỗi ${res.status}`);
+        throw new Error(data?.message || data?.error || `Lỗi ${res.status}`);
+      }
+
+      return data;
         } catch (err) {
             console.error(`API Error [${path}]:`, err);
             throw err;
@@ -114,13 +122,23 @@
     }
 
     // --- ROUTING ---
-    const navigate = (path) => {
-        window.location.hash = path;
-    };
+  const buildHash = (path, params) => {
+    const qs = params ? new URLSearchParams(params).toString() : "";
+    return `#${path}${qs ? `?${qs}` : ""}`;
+  };
+
+  const navigate = (path, params) => {
+    window.location.hash = buildHash(path, params);
+  };
 
     const handleRoute = async () => {
-        const hash = window.location.hash || "#/";
-        state.currentRoute = hash.replace(/^#/, "") || "/";
+    const hash = window.location.hash || "#/";
+    const raw = hash.replace(/^#/, "") || "/";
+    const [path, qs] = raw.split("?");
+    state.currentRoute = path || "/";
+    const params = {};
+    if (qs) new URLSearchParams(qs).forEach((v, k) => (params[k] = v));
+    state.routeParams = params;
         state.notice = null; // Clear notice on navigate
         render();
     };
@@ -165,6 +183,8 @@
                   </button>
                   <ul class="dropdown-menu dropdown-menu-end shadow">
                     <li><a class="dropdown-item" href="#/profile">Thông tin cá nhân</a></li>
+                    ${isDoctor ? `<li><a class="dropdown-item" href="#/doctor/profile">Hồ sơ bác sĩ</a></li>` : ""}
+                    <li><button class="dropdown-item" id="refreshTokenBtn">Làm mới token</button></li>
                     <li><hr class="dropdown-divider"></li>
                     <li><button class="dropdown-item text-danger" id="logoutBtn">Đăng xuất</button></li>
                   </ul>
@@ -366,7 +386,10 @@
                     </select>
                   </div>
                   <div class="col-md-6">
-                    <label class="form-label fw-semibold">2. Chọn Bác sĩ</label>
+                    <label class="form-label fw-semibold d-flex justify-content-between align-items-center">
+                      <span>2. Chọn Bác sĩ</span>
+                      ${selected.docId ? `<a class="small text-decoration-none" href="#/doctor-detail?id=${selected.docId}">Xem hồ sơ</a>` : ""}
+                    </label>
                     <select id="bookDoc" class="form-select bg-light border-0" ${!selected.specId ? "disabled" : ""}>
                       <option value="">-- Chọn bác sĩ --</option>
                       ${(doctors || []).map(d => `<option value="${d.id}" ${d.id == selected.docId ? "selected" : ""}>Bác sĩ ${h(d.fullName)}</option>`).join("")}
@@ -598,6 +621,181 @@
     </div>
   `;
 
+    const viewDoctorProfile = (me) => `
+    <h2 class="fw-bold mb-4">🩺 Hồ sơ bác sĩ</h2>
+    <div class="row g-4">
+      <div class="col-lg-7">
+        <div class="card border-0 shadow-sm rounded-4">
+          <div class="card-body p-4">
+            <h5 class="fw-bold mb-4">Cập nhật thông tin</h5>
+            <form id="doctorProfileForm">
+              <div class="mb-3">
+                <label class="form-label fw-semibold">Email</label>
+                <input type="text" class="form-control bg-light border-0" value="${h(me.email)}" disabled>
+              </div>
+              <div class="mb-3">
+                <label class="form-label fw-semibold">Họ và tên</label>
+                <input type="text" name="fullName" class="form-control" value="${h(me.fullName)}" required>
+              </div>
+              <div class="mb-3">
+                <label class="form-label fw-semibold">Số điện thoại</label>
+                <input type="tel" name="phone" class="form-control" value="${h(me.phone)}">
+              </div>
+              <div class="mb-3">
+                <label class="form-label fw-semibold">Chuyên khoa</label>
+                <input type="text" class="form-control bg-light border-0" value="${h(me.specialtyName || "-")}" disabled>
+              </div>
+              <div class="mb-3">
+                <label class="form-label fw-semibold">Phí khám</label>
+                <input type="number" step="0.01" min="0" name="consultationFee" class="form-control" value="${me.consultationFee ?? 0}">
+              </div>
+              <div class="mb-4">
+                <label class="form-label fw-semibold">Giới thiệu</label>
+                <textarea name="bio" class="form-control" rows="4">${h(me.bio || "")}</textarea>
+              </div>
+              <button type="submit" class="btn btn-primary px-4 shadow">Lưu hồ sơ bác sĩ</button>
+            </form>
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-5">
+        <div class="card border-0 shadow-sm rounded-4">
+          <div class="card-body p-4">
+            <h5 class="fw-bold mb-3">Gợi ý</h5>
+            <ul class="text-muted small">
+              <li class="mb-2">Cập nhật phí khám và giới thiệu để bệnh nhân dễ lựa chọn.</li>
+              <li class="mb-2">Chuyên khoa hiện đang hiển thị theo dữ liệu hệ thống.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+    const viewDoctorDetail = (doctor) => `
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h2 class="fw-bold mb-0">👨‍⚕️ Thông tin bác sĩ</h2>
+      <a href="#/" class="btn btn-link text-decoration-none">← Quay lại</a>
+    </div>
+    <div class="card border-0 shadow-sm rounded-4">
+      <div class="card-body p-4">
+        <div class="row g-4">
+          <div class="col-md-8">
+            <h4 class="fw-bold mb-1">${h(doctor.fullName)}</h4>
+            <div class="text-muted mb-3">${h(doctor.specialtyName || "-")}</div>
+            <div class="mb-3">
+              <span class="badge bg-light text-dark border me-2">Phí khám</span>
+              <span class="fw-semibold">${doctor.consultationFee !== undefined && doctor.consultationFee !== null ? formatCurrency(doctor.consultationFee) : "-"}</span>
+            </div>
+            <div>
+              <h6 class="fw-bold">Giới thiệu</h6>
+              <div class="text-muted">${h(doctor.bio || "Chưa có thông tin.")}</div>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="p-3 bg-light rounded-4">
+              <div class="small text-muted mb-2">Bạn muốn đặt lịch với bác sĩ này?</div>
+              <a href="#/book" class="btn btn-primary w-100 shadow">Đi tới trang đặt lịch</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+    const viewAdminUserEdit = (u) => `
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h2 class="fw-bold mb-0">✏️ Cập nhật người dùng</h2>
+      <a href="#/admin/users" class="btn btn-link text-decoration-none">← Quay lại</a>
+    </div>
+    <div class="card border-0 shadow-sm rounded-4">
+      <div class="card-body p-4">
+        <form id="adminUserEditForm" data-id="${u.id}">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">ID</label>
+              <input type="text" class="form-control bg-light border-0" value="#${u.id}" disabled>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Vai trò</label>
+              <input type="text" class="form-control bg-light border-0" value="${h(u.role)}" disabled>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Email</label>
+              <input type="text" class="form-control bg-light border-0" value="${h(u.email)}" disabled>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Số điện thoại</label>
+              <input type="tel" name="phone" class="form-control" value="${h(u.phone)}">
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-semibold">Họ và tên</label>
+              <input type="text" name="fullName" class="form-control" value="${h(u.fullName)}" required>
+            </div>
+          </div>
+          <div class="mt-4">
+            <button type="submit" class="btn btn-primary px-4 shadow" ${state.loading ? "disabled" : ""}>Lưu</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+
+    const viewAdminScheduleBatch = (doctors) => `
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h2 class="fw-bold mb-0">🗓️ Tạo lịch làm việc hàng loạt</h2>
+      <a href="#/admin/dashboard" class="btn btn-link text-decoration-none">← Quay lại</a>
+    </div>
+    <div class="row g-4">
+      <div class="col-lg-5">
+        <div class="card border-0 shadow-sm rounded-4">
+          <div class="card-body p-4">
+            <h5 class="fw-bold mb-4">Thiết lập</h5>
+            <form id="adminBatchScheduleForm">
+              <div class="mb-3">
+                <label class="form-label fw-semibold">Bác sĩ</label>
+                <select name="doctorId" class="form-select" required>
+                  <option value="">-- Chọn bác sĩ --</option>
+                  ${(doctors || []).map(d => `<option value="${d.id}">#${d.id} · ${h(d.fullName)}${d.specialtyName ? ` · ${h(d.specialtyName)}` : ""}</option>`).join("")}
+                </select>
+              </div>
+              <div class="mb-3">
+                <label class="form-label fw-semibold">Ngày làm việc</label>
+                <input type="date" name="workingDate" class="form-control" required>
+              </div>
+              <div class="row g-2 mb-3">
+                <div class="col-6">
+                  <label class="form-label fw-semibold small">Bắt đầu</label>
+                  <input type="time" name="startTime" class="form-control" required>
+                </div>
+                <div class="col-6">
+                  <label class="form-label fw-semibold small">Kết thúc</label>
+                  <input type="time" name="endTime" class="form-control" required>
+                </div>
+              </div>
+              <div class="mb-4">
+                <label class="form-label fw-semibold">Độ dài mỗi ca (phút)</label>
+                <input type="number" name="slotMinutes" class="form-control" min="5" step="5" value="30" required>
+              </div>
+              <button type="submit" class="btn btn-primary w-100 shadow" ${state.loading ? "disabled" : ""}>Tạo hàng loạt</button>
+            </form>
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-7">
+        <div class="card border-0 shadow-sm rounded-4">
+          <div class="card-body p-4">
+            <h5 class="fw-bold mb-3">Lưu ý</h5>
+            <ul class="text-muted small mb-0">
+              <li class="mb-2">Tính năng này gọi API batch để tạo nhiều ca theo khoảng thời gian.</li>
+              <li class="mb-2">Nếu đã có ca trùng giờ trong DB, hệ thống backend hiện chưa kiểm tra trùng.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
     const viewAdminDashboard = (stats) => {
         const s = stats || {};
         const cards = [
@@ -613,6 +811,7 @@
         <div class="btn-group shadow-sm">
           <a href="#/admin/users" class="btn btn-outline-primary btn-sm">Quản lý User</a>
           <a href="#/admin/specialties" class="btn btn-outline-primary btn-sm">Chuyên khoa</a>
+          <a href="#/admin/schedule-batch" class="btn btn-outline-primary btn-sm">Lịch hàng loạt</a>
         </div>
       </div>
       <div class="row g-4 mb-5">
@@ -735,6 +934,7 @@
                         </td>
                         <td><span class="badge bg-light text-dark border">${u.role}</span></td>
                         <td class="text-end">
+                          <a class="btn btn-sm btn-outline-primary me-2" href="#/admin/user-edit?id=${u.id}">Sửa</a>
                           <button class="btn btn-sm btn-outline-danger deleteUserBtn" data-id="${u.id}">Xóa</button>
                         </td>
                       </tr>
@@ -828,7 +1028,7 @@
             <form id="scheduleForm">
               <div class="mb-3">
                 <label class="form-label fw-semibold">Ngày làm việc</label>
-                <input type="date" name="workingDate" class="form-control" required>
+                <input type="date" name="workingDate" class="form-control" value="${selectedDate || ""}" required>
               </div>
               <div class="row g-2 mb-4">
                 <div class="col-6">
@@ -914,10 +1114,8 @@
             } else if (r === "/forgot-password") {
                 content = viewForgotPassword();
             } else if (r === "/book") {
-                if (state.user && state.user.role !== "PATIENT") {
-                    navigate("/");
-                    return;
-                }
+                if (!state.user) return navigate("/login");
+                if (state.user.role !== "PATIENT") return navigate("/");
                 if (!state.specialties.length) state.specialties = await callApi("/api/specialties", { auth: false });
                 const specId = state.routeParams.specId || "";
                 const docId = state.routeParams.docId || "";
@@ -954,6 +1152,11 @@
                 if (!state.user) return navigate("/login");
                 const me = await callApi("/api/users/me");
                 content = viewProfile(me);
+            } else if (r === "/doctor/profile") {
+                if (!state.user) return navigate("/login");
+                if (state.user.role !== "DOCTOR") return navigate("/");
+                const me = await callApi("/api/users/me");
+                content = viewDoctorProfile(me);
             } else if (r === "/admin/dashboard") {
                 if (state.user?.role !== "ADMIN") return navigate("/");
                 const stats = await callApi("/api/statistics");
@@ -964,15 +1167,30 @@
                 const page = parseInt(state.routeParams.page || "0");
                 const data = await callApi(`/api/users?page=${page}&size=10${role ? `&role=${role}` : ""}`);
                 content = viewAdminUsers({ users: data.data, page: data.currentPage, totalPages: data.totalPages, roleFilter: role });
+            } else if (r === "/admin/user-edit") {
+                if (state.user?.role !== "ADMIN") return navigate("/");
+                const id = state.routeParams.id;
+                if (!id) return navigate("/admin/users");
+                const u = await callApi(`/api/users/${id}`);
+                content = viewAdminUserEdit(u);
             } else if (r === "/admin/specialties") {
                 if (state.user?.role !== "ADMIN") return navigate("/");
                 const list = await callApi("/api/specialties", { auth: false });
                 content = viewAdminSpecialties(list);
+            } else if (r === "/admin/schedule-batch") {
+                if (state.user?.role !== "ADMIN") return navigate("/");
+                const data = await callApi("/api/users?role=DOCTOR&page=0&size=100");
+                content = viewAdminScheduleBatch(data.data || []);
             } else if (r === "/doctor/schedule") {
-                if (state.user?.role !== "DOCTOR" && state.user?.role !== "ADMIN") return navigate("/");
+                if (state.user?.role !== "DOCTOR") return navigate("/");
                 const date = state.routeParams.date || new Date().toISOString().split('T')[0];
-                const slots = await callApi(`/api/schedule/available?doctorId=${state.user.id}&date=${date}`);
+                const slots = await callApi(`/api/schedule/doctor?date=${date}`);
                 content = viewDoctorSchedule(slots, date);
+            } else if (r === "/doctor-detail") {
+                const id = state.routeParams.id;
+                if (!id) return navigate("/");
+                const doctor = await callApi(`/api/users/doctors/${id}`, { auth: false });
+                content = viewDoctorDetail(doctor);
             } else {
                 content = '<div class="text-center py-5"><h3>404 - Trang không tồn tại</h3><a href="#/">Quay lại trang chủ</a></div>';
             }
@@ -1231,6 +1449,58 @@
             }
         });
 
+        // Admin - Batch Schedule
+        document.getElementById("adminBatchScheduleForm")?.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const fd = new FormData(e.target);
+            const doctorId = parseInt(fd.get("doctorId"), 10);
+            const workingDate = fd.get("workingDate");
+            const startTime = fd.get("startTime");
+            const endTime = fd.get("endTime");
+            const slotMinutes = parseInt(fd.get("slotMinutes"), 10);
+
+            if (!doctorId || !workingDate) return setNotice("danger", "Vui lòng chọn bác sĩ và ngày làm việc.");
+            if (!startTime || !endTime) return setNotice("danger", "Vui lòng chọn giờ bắt đầu/kết thúc.");
+            if (!slotMinutes || slotMinutes <= 0) return setNotice("danger", "Độ dài mỗi ca không hợp lệ.");
+            if (startTime >= endTime) return setNotice("danger", "Giờ kết thúc phải lớn hơn giờ bắt đầu.");
+
+            const toMinutes = (t) => {
+                const [hh, mm] = String(t).split(":").map(Number);
+                return hh * 60 + mm;
+            };
+            const toTime = (mins) => {
+                const hh = String(Math.floor(mins / 60)).padStart(2, "0");
+                const mm = String(mins % 60).padStart(2, "0");
+                return `${hh}:${mm}`;
+            };
+
+            const startM = toMinutes(startTime);
+            const endM = toMinutes(endTime);
+            const dtos = [];
+            for (let m = startM; m + slotMinutes <= endM; m += slotMinutes) {
+                dtos.push({
+                    doctorId,
+                    workingDate,
+                    startTime: toTime(m),
+                    endTime: toTime(m + slotMinutes),
+                });
+            }
+
+            if (!dtos.length) return setNotice("danger", "Không tạo được ca nào với khoảng thời gian đã chọn.");
+
+            setLoading(true);
+            try {
+                const res = await callApi("/api/schedule/admin/batch", { method: "POST", json: dtos });
+                const created = typeof res === "object" && res ? res.created : dtos.length;
+                const msg = typeof res === "object" && res ? res.message : res;
+                setNotice("success", `${msg} (Đã tạo ${created} ca)`);
+            } catch (err) {
+                setNotice("danger", err.message);
+            } finally {
+                setLoading(false);
+            }
+        });
+
         // Doctor - Schedule
         document.getElementById("scheduleDateFilter")?.addEventListener("change", (e) => {
             state.routeParams.date = e.target.value;
@@ -1242,9 +1512,13 @@
             const fd = new FormData(e.target);
             const json = Object.fromEntries(fd);
             json.doctorId = state.user.id;
+            if (!json.workingDate) return setNotice("danger", "Vui lòng chọn ngày làm việc.");
+            if (!json.startTime || !json.endTime) return setNotice("danger", "Vui lòng chọn giờ bắt đầu/kết thúc.");
+            if (json.startTime >= json.endTime) return setNotice("danger", "Giờ kết thúc phải lớn hơn giờ bắt đầu.");
             try {
-                await callApi("/api/schedule", { method: "POST", json });
-                setNotice("success", "Đã tạo lịch làm việc.");
+                const res = await callApi("/api/schedule", { method: "POST", json });
+                state.routeParams.date = json.workingDate;
+                setNotice("success", res?.message || "Đã tạo lịch làm việc.");
                 render();
             } catch (err) {
                 setNotice("danger", err.message);
