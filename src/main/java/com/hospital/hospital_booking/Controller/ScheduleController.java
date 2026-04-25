@@ -1,5 +1,6 @@
 package com.hospital.hospital_booking.Controller;
 
+import com.hospital.hospital_booking.DTO.ScheduleRequestDTO;
 import com.hospital.hospital_booking.Entity.Schedule;
 import com.hospital.hospital_booking.Service.ScheduleService;
 import lombok.RequiredArgsConstructor;
@@ -14,8 +15,10 @@ import java.util.List;
 @RequestMapping("api/schedule")
 @RequiredArgsConstructor
 public class ScheduleController {
+
     private final ScheduleService scheduleService;
-    // URL: GET http://localhost:8080/api/schedules/available?doctorId=2&date=2026-04-20
+
+    // GET /api/schedule/available?doctorId=2&date=2026-04-20  (PUBLIC)
     @GetMapping("/available")
     public ResponseEntity<List<Schedule>> getAvailableSlots(
             @RequestParam Long doctorId,
@@ -25,20 +28,38 @@ public class ScheduleController {
         return ResponseEntity.ok(availableSlots);
     }
 
+    // POST /api/schedule  (DOCTOR tạo từng slot cho lịch của chính mình)
     @PostMapping
-    public ResponseEntity<Schedule> createSchedule(@RequestBody Schedule schedule) {
-        return ResponseEntity.ok(scheduleService.createSchedule(schedule));
+    public ResponseEntity<?> createSchedule(@RequestBody ScheduleRequestDTO scheduleDTO) {
+        try {
+            return ResponseEntity.ok(scheduleService.createSchedule(scheduleDTO));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
     }
 
+    // DELETE /api/schedule/{id}  (DOCTOR xoá slot của chính mình)
     @DeleteMapping("/{id}")
     public ResponseEntity<?> deleteSchedule(@PathVariable Long id) {
-        scheduleService.deleteSchedule(id);
-        return ResponseEntity.ok("Xóa lịch làm việc thành công!");
+        try {
+            scheduleService.deleteSchedule(id);
+            return ResponseEntity.ok("Xoá lịch làm việc thành công!");
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
     }
 
-    @PostMapping("/batch")
-    public ResponseEntity<?> batchCreateSchedules(@RequestBody List<Schedule> schedules) {
-        scheduleService.batchCreateSchedules(schedules);
-        return ResponseEntity.ok("Tạo lịch làm việc hàng loạt thành công!");
+    // [SỬA VẤN ĐỀ VÀNG 6]
+    // POST /api/schedule/admin/batch  (ADMIN ONLY — tạo hàng loạt cho nhiều bác sĩ)
+    // Đổi từ /batch sang /admin/batch để tách biệt rõ ràng khỏi endpoint của DOCTOR
+    // SecurityConfig cần cập nhật: hasRole("ADMIN") cho /api/schedule/admin/batch
+    @PostMapping("/admin/batch")
+    public ResponseEntity<?> batchCreateSchedules(@RequestBody List<ScheduleRequestDTO> scheduleDTOs) {
+        try {
+            scheduleService.batchCreateSchedules(scheduleDTOs);
+            return ResponseEntity.ok("Tạo lịch làm việc hàng loạt thành công!");
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
     }
 }

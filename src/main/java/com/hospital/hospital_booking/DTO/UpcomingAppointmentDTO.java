@@ -22,4 +22,5 @@ public class UpcomingAppointmentDTO {
     private String timeRemaining;
     private String meetingLink;
     private String symptoms;
+    private String status;
 }

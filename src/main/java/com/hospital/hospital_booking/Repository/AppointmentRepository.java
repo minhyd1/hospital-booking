@@ -10,6 +10,7 @@ import java.util.List;
 
 @Repository
 public interface AppointmentRepository extends JpaRepository<Appointment, Long> {
+
     List<Appointment> findByScheduleDoctorIdAndStatusAndScheduleWorkingDateGreaterThanEqualOrderByScheduleStartTimeAsc(
             Long doctorId, AppointmentStatus status, LocalDate date);
 
@@ -27,4 +28,12 @@ public interface AppointmentRepository extends JpaRepository<Appointment, Long> 
     List<Appointment> findByStatus(AppointmentStatus status);
 
     List<Appointment> findByScheduleDoctorId(Long doctorId);
+
+    // [SỬA LỖI ĐỎ 2] Kiểm tra tồn tại appointment theo scheduleId và status
+    // Dùng để chặn xoá lịch làm việc khi còn appointment PENDING trên slot đó
+    boolean existsByScheduleIdAndStatus(Long scheduleId, AppointmentStatus status);
+    List<Appointment> findByScheduleDoctorIdAndStatusInAndScheduleWorkingDateGreaterThanEqualOrderByScheduleStartTimeAsc(
+            Long doctorId, List<AppointmentStatus> statuses, LocalDate date);
+    List<Appointment> findByPatientIdAndStatusInAndScheduleWorkingDateGreaterThanEqualOrderByScheduleStartTimeAsc(
+            Long patientId, List<AppointmentStatus> statuses, LocalDate date);
 }

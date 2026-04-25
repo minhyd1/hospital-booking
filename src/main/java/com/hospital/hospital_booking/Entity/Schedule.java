@@ -35,7 +35,7 @@ public class Schedule {
     @Column(name = "end_time", nullable = false)
     private LocalTime endTime;
 
-    @Column(name = "is_booked")
+    @Column(name = "is_booked", nullable = false)
     private Boolean isBooked = false;
 
     // Cơ chế chống Overbooking (Trùng lịch)

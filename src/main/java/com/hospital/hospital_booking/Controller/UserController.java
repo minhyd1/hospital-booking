@@ -55,8 +55,10 @@ public class UserController {
 
             Map<String, Object> response = new HashMap<>();
             response.put("token", jwt);
+            response.put("id", user.getId());
             response.put("role", user.getRole());
             response.put("fullName", user.getFullName());
+            response.put("email", user.getEmail());
 
             return ResponseEntity.ok(response);
         } catch (RuntimeException e) {

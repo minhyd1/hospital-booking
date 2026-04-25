@@ -46,6 +46,7 @@ public class User {
     private LocalDateTime updateAt;
 
     @OneToOne(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @com.fasterxml.jackson.annotation.JsonIgnore
     private DoctorDetail doctorDetail;
 
 }
